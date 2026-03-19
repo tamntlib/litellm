@@ -629,6 +629,21 @@ def _get_provider_for_cost_calc(
     return custom_llm_provider
 
 
+def _get_cost_calc_provider(
+    model: Optional[str],
+    base_model: Optional[str],
+    custom_pricing: Optional[bool],
+    custom_llm_provider: Optional[str],
+) -> Optional[str]:
+    if custom_pricing is not True and base_model is not None:
+        return _get_provider_for_cost_calc(model=base_model)
+
+    return _get_provider_for_cost_calc(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+    )
+
+
 def _select_model_name_for_cost_calc(
     model: Optional[str],
     completion_response: Optional[Any],
@@ -646,8 +661,11 @@ def _select_model_name_for_cost_calc(
 
     return_model: Optional[str] = None
     region_name: Optional[str] = None
-    custom_llm_provider = _get_provider_for_cost_calc(
-        model=model, custom_llm_provider=custom_llm_provider
+    cost_calc_provider = _get_cost_calc_provider(
+        model=model,
+        base_model=base_model,
+        custom_pricing=custom_pricing,
+        custom_llm_provider=custom_llm_provider,
     )
 
     completion_response_model: Optional[str] = None
@@ -693,13 +711,13 @@ def _select_model_name_for_cost_calc(
 
     if (
         return_model is not None
-        and custom_llm_provider is not None
+        and cost_calc_provider is not None
         and not _model_contains_known_llm_provider(return_model)
     ):  # add provider prefix if not already present, to match model_cost
         if region_name is not None:
-            return_model = f"{custom_llm_provider}/{region_name}/{return_model}"
+            return_model = f"{cost_calc_provider}/{region_name}/{return_model}"
         else:
-            return_model = f"{custom_llm_provider}/{return_model}"
+            return_model = f"{cost_calc_provider}/{return_model}"
 
     return return_model
 
@@ -1488,6 +1506,12 @@ def completion_cost(  # noqa: PLR0915
                 if litellm_logging_obj is not None:
                     request_model_for_cost = litellm_logging_obj.model
 
+                pricing_custom_llm_provider = custom_llm_provider
+                if custom_pricing is not True and base_model is not None:
+                    pricing_custom_llm_provider = _get_provider_for_cost_calc(
+                        model=base_model
+                    )
+
                 (
                     prompt_tokens_cost_usd_dollar,
                     completion_tokens_cost_usd_dollar,
@@ -1495,7 +1519,7 @@ def completion_cost(  # noqa: PLR0915
                     model=model,
                     prompt_tokens=prompt_tokens or 0,
                     completion_tokens=completion_tokens or 0,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_custom_llm_provider,
                     response_time_ms=total_time,
                     region_name=region_name,
                     custom_cost_per_second=custom_cost_per_second,
@@ -1514,7 +1538,7 @@ def completion_cost(  # noqa: PLR0915
                 )
 
                 # Get additional costs from provider (e.g., routing fees, infrastructure costs)
-                if custom_llm_provider == "azure_ai":
+                if pricing_custom_llm_provider == "azure_ai":
                     model_for_additional_costs = request_model_for_cost
                     if completion_response is not None:
                         hidden_params = (
