@@ -318,6 +318,82 @@ class TestAzureAnthropicCostCalculation:
         assert call_kwargs["custom_llm_provider"] == "azure_ai"
 
 
+class TestAnthropicCustomApiBaseResponseCost:
+    def test_anthropic_custom_api_base_uses_base_model_for_response_cost(self):
+        """Regression test for Anthropic passthrough logging with custom api_base.
+
+        Before the fix, this path attempted Anthropic pricing lookup for gpt-5.4
+        and logged response_cost as None because base_model metadata was not used
+        by the passthrough logging path.
+        """
+        from litellm.litellm_core_utils.litellm_logging import Logging
+        from litellm.types.utils import ModelResponse, Usage
+
+        import litellm
+
+        os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+        litellm.model_cost = litellm.get_model_cost_map(url="")
+
+        logging_obj = Logging(
+            model="gpt-5.4-strict",
+            messages=[],
+            stream=False,
+            call_type="completion",
+            start_time=datetime.now(),
+            litellm_call_id="test-call-id",
+            function_id="test-function-id",
+            kwargs={
+                "metadata": {"model_info": {"base_model": "gpt-5.4"}},
+                "api_base": "my_custom_api_base",
+                "api_key": "my_custom_api_key",
+            },
+        )
+        logging_obj.update_environment_variables(
+            litellm_params=logging_obj.litellm_params,
+            optional_params={},
+            model="gpt-5.4-strict",
+        )
+        logging_obj.model_call_details["custom_llm_provider"] = "anthropic"
+
+        litellm_model_response = ModelResponse(
+            model="gpt-5.4",
+            choices=[],
+            usage=Usage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+        )
+
+        kwargs = AnthropicPassthroughLoggingHandler._create_anthropic_response_logging_payload(
+            litellm_model_response=litellm_model_response,
+            model="gpt-5.4",
+            kwargs={},
+            start_time=datetime.now(),
+            end_time=datetime.now(),
+            logging_obj=logging_obj,
+        )
+
+        model_info = litellm.get_model_info(
+            model="gpt-5.4",
+            custom_llm_provider="openai",
+        )
+        expected_cost = (
+            litellm_model_response.usage.prompt_tokens
+            * model_info["input_cost_per_token"]
+            + litellm_model_response.usage.completion_tokens
+            * model_info["output_cost_per_token"]
+        )
+
+        assert kwargs["response_cost"] > 0
+        assert kwargs["response_cost"] == pytest.approx(expected_cost)
+        assert logging_obj.model_call_details["model"] == "gpt-5.4"
+        assert logging_obj.model_call_details["custom_llm_provider"] == "anthropic"
+        assert logging_obj.model_call_details["litellm_params"]["base_model"] == "gpt-5.4"
+        assert (
+            logging_obj.model_call_details.get(
+                "response_cost_failure_debug_information"
+            )
+            is None
+        )
+
+
 class TestAnthropicBatchPassthroughCostTracking:
     """Test cases for Anthropic batch passthrough cost tracking functionality"""
 
