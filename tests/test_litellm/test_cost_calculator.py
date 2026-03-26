@@ -447,6 +447,55 @@ def test_per_request_custom_pricing_with_router():
     assert "gpt-3.5-turbo" in selected
 
 
+def test_custom_api_base_router_uses_base_model_pricing_for_response_cost():
+    """Regression test for custom api_base deployments that rely on base_model pricing.
+
+    Before the fix, this deployment reported response_cost=0.0 even though the
+    base_model (gpt-5.4) exists in the cost map.
+    """
+    from litellm import Router
+
+    os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
+    litellm.model_cost = litellm.get_model_cost_map(url="")
+
+    router = Router(
+        model_list=[
+            {
+                "model_name": "gpt-5.4-strict",
+                "litellm_params": {
+                    "model": "anthropic/gpt-5.4",
+                    "api_base": "my_custom_api_base",
+                    "api_key": "my_custom_api_key",
+                },
+                "model_info": {
+                    "base_model": "gpt-5.4",
+                },
+            }
+        ]
+    )
+
+    response = router.completion(
+        model="gpt-5.4-strict",
+        messages=[{"role": "user", "content": "Hello, world!"}],
+        mock_response=True,
+    )
+
+    assert response.usage is not None
+    response_cost = response._hidden_params["response_cost"]
+
+    model_info = litellm.get_model_info(
+        model="gpt-5.4",
+        custom_llm_provider="openai",
+    )
+    expected_cost = (
+        response.usage.prompt_tokens * model_info["input_cost_per_token"]
+        + response.usage.completion_tokens * model_info["output_cost_per_token"]
+    )
+
+    assert response_cost > 0
+    assert response_cost == pytest.approx(expected_cost)
+
+
 def test_azure_realtime_cost_calculator():
     os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
     litellm.model_cost = litellm.get_model_cost_map(url="")

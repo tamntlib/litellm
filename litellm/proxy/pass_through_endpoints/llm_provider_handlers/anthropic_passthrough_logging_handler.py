@@ -8,6 +8,7 @@ import litellm
 from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.llms.anthropic import get_anthropic_config
+from litellm.utils import _get_base_model_from_metadata
 from litellm.llms.anthropic.chat.handler import (
     ModelResponseIterator as AnthropicModelResponseIterator,
 )
@@ -114,21 +115,51 @@ class AnthropicPassthroughLoggingHandler:
         handles streaming and non-streaming responses
         """
         try:
-            # Get custom_llm_provider from logging object if available (e.g., azure_ai for Azure Anthropic)
             custom_llm_provider = logging_obj.model_call_details.get(
                 "custom_llm_provider"
             )
-
-            # Prepend custom_llm_provider to model if not already present
-            model_for_cost = model
-            if custom_llm_provider and not model.startswith(f"{custom_llm_provider}/"):
-                model_for_cost = f"{custom_llm_provider}/{model}"
-
-            response_cost = litellm.completion_cost(
-                completion_response=litellm_model_response,
-                model=model_for_cost,
-                custom_llm_provider=custom_llm_provider,
+            base_model = _get_base_model_from_metadata(
+                model_call_details=logging_obj.model_call_details
             )
+            use_logging_cost_calculator = base_model is not None and (
+                custom_llm_provider is None
+                or custom_llm_provider == litellm.LlmProviders.ANTHROPIC.value
+            )
+
+            # Populate logging state before delegated cost calculation so the
+            # canonical logging path can recover base_model/provider metadata.
+            litellm_model_response.id = logging_obj.litellm_call_id
+            litellm_model_response.model = model
+            logging_obj.model = model
+            logging_obj.model_call_details["model"] = model
+
+            if use_logging_cost_calculator:
+                if not custom_llm_provider:
+                    custom_llm_provider = litellm.LlmProviders.ANTHROPIC.value
+                    logging_obj.model_call_details["custom_llm_provider"] = (
+                        custom_llm_provider
+                    )
+
+                response_cost = logging_obj._response_cost_calculator(
+                    result=litellm_model_response
+                )
+            else:
+                model_for_cost = model
+                if custom_llm_provider and not model.startswith(
+                    f"{custom_llm_provider}/"
+                ):
+                    model_for_cost = f"{custom_llm_provider}/{model}"
+
+                response_cost = litellm.completion_cost(
+                    completion_response=litellm_model_response,
+                    model=model_for_cost,
+                    custom_llm_provider=custom_llm_provider,
+                )
+
+                if not custom_llm_provider:
+                    logging_obj.model_call_details["custom_llm_provider"] = (
+                        litellm.LlmProviders.ANTHROPIC.value
+                    )
 
             kwargs["response_cost"] = response_cost
             kwargs["model"] = model
@@ -150,15 +181,6 @@ class AnthropicPassthroughLoggingHandler:
                 "kwargs= %s",
                 json.dumps(kwargs, indent=4, default=str),
             )
-
-            # set litellm_call_id to logging response object
-            litellm_model_response.id = logging_obj.litellm_call_id
-            litellm_model_response.model = model
-            logging_obj.model_call_details["model"] = model
-            if not logging_obj.model_call_details.get("custom_llm_provider"):
-                logging_obj.model_call_details[
-                    "custom_llm_provider"
-                ] = litellm.LlmProviders.ANTHROPIC.value
             return kwargs
         except Exception as e:
             verbose_proxy_logger.exception(
