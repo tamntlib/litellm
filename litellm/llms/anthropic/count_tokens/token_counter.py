@@ -4,6 +4,7 @@ Anthropic Token Counter implementation using the CountTokens API.
 
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from litellm._logging import verbose_logger
 from litellm.llms.anthropic.count_tokens.handler import AnthropicCountTokensHandler
@@ -53,6 +54,15 @@ class AnthropicTokenCounter(BaseTokenCounter):
 
         deployment = deployment or {}
         litellm_params = deployment.get("litellm_params", {})
+
+        api_base = litellm_params.get("api_base")
+        if api_base:
+            parsed_api_base = urlparse(api_base)
+            if (
+                parsed_api_base.scheme in {"http", "https"}
+                and parsed_api_base.hostname != "api.anthropic.com"
+            ):
+                return None
 
         # Get Anthropic API key from deployment config or environment
         api_key = litellm_params.get("api_key")

@@ -53,6 +53,27 @@ def test_acount_tokens_routes_to_anthropic():
         assert result.request_model == "anthropic/claude-3-5-sonnet-20241022"
 
 
+def test_acount_tokens_skips_anthropic_api_for_custom_api_base():
+    """Test that acount_tokens falls back locally for custom non-Anthropic api_base."""
+    with patch(
+        "litellm.llms.anthropic.count_tokens.token_counter.anthropic_count_tokens_handler.handle_count_tokens_request",
+        new_callable=AsyncMock,
+        return_value={"input_tokens": 20},
+    ) as mock_handler:
+        result = asyncio.run(
+            litellm.acount_tokens(
+                model="anthropic/claude-3-5-sonnet-20241022",
+                messages=[{"role": "user", "content": "Hello Claude!"}],
+                api_key="sk-ant-test-key",
+                api_base="https://anthropic-gateway.example.com/v1/messages/count_tokens",
+            )
+        )
+
+        mock_handler.assert_not_called()
+        assert result.tokenizer_type == "local_tokenizer"
+        assert result.total_tokens > 0
+
+
 def test_acount_tokens_fallback_to_local():
     """Test that unsupported providers fall back to local tiktoken counting."""
     result = asyncio.run(
