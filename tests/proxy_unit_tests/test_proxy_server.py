@@ -2859,3 +2859,26 @@ def test_get_litellm_model_info(data):
     ):
         get_litellm_model_info(model=model)
         get_info_mock.assert_called_once_with(data["expected"])
+
+
+def test_get_litellm_model_info_chatgpt_base_model_uses_explicit_provider():
+    from litellm.proxy.proxy_server import get_litellm_model_info
+
+    model = {
+        "model_name": "gpt-5.3-codex-spark",
+        "litellm_params": {
+            "model": "anthropic/gpt-5.3-codex-spark",
+            "litellm_credential_name": "cli-proxy-api-anthropic",
+        },
+        "model_info": {"base_model": "chatgpt/gpt-5.3-codex-spark"},
+    }
+    get_info_mock = MagicMock()
+
+    with mock.patch(
+        "litellm.get_model_info",
+        new=get_info_mock,
+    ):
+        get_litellm_model_info(model=model)
+        get_info_mock.assert_called_once_with(
+            model="gpt-5.3-codex-spark", custom_llm_provider="chatgpt"
+        )
