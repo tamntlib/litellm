@@ -5617,6 +5617,11 @@ def get_litellm_model_info(model: dict = {}):
     try:
         if "azure" in model_to_lookup or model_info.get("base_model"):
             model_to_lookup = model_info.get("base_model", None)
+            if model_to_lookup and model_to_lookup.startswith("chatgpt/"):
+                custom_llm_provider, model_name = model_to_lookup.split("/", 1)
+                return litellm.get_model_info(
+                    model=model_name, custom_llm_provider=custom_llm_provider
+                )
         litellm_model_info = litellm.get_model_info(model_to_lookup)
         return litellm_model_info
     except Exception:
