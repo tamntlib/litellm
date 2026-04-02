@@ -1423,6 +1423,38 @@ def test_anthropic_disable_url_suffix_env_var():
             assert not actual_api_base.endswith("/v1/messages")
 
 
+def test_completion_prefers_anthropic_provider_for_openai_named_alias():
+    captured = {}
+
+    def capture_completion(**kwargs):
+        captured.update(kwargs)
+        return litellm.ModelResponse(
+            id="test-id",
+            model="anthropic/gpt-5.4",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        )
+
+    with patch("litellm.main.anthropic_chat_completions") as mock_anthropic:
+        mock_anthropic.completion = capture_completion
+
+        response = litellm.completion(
+            model="anthropic/gpt-5.4",
+            messages=[{"role": "user", "content": "hello"}],
+            api_key="fake-key",
+            custom_llm_provider="anthropic",
+        )
+
+    assert response.model == "anthropic/gpt-5.4"
+    assert captured["model"] == "gpt-5.4"
+    assert captured["custom_llm_provider"] == "anthropic"
+
+
 def test_anthropic_text_disable_url_suffix_env_var():
     """Test that LITELLM_ANTHROPIC_DISABLE_URL_SUFFIX prevents /v1/complete suffix for anthropic_text."""
     import os
