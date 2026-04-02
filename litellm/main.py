@@ -2558,7 +2558,10 @@ def completion(  # type: ignore # noqa: PLR0915
                 input=messages, api_key=api_key, original_response=response
             )
         elif (
-            model in litellm.open_ai_chat_completion_models
+            (
+                custom_llm_provider in (None, "openai")
+                and model in litellm.open_ai_chat_completion_models
+            )
             or custom_llm_provider == "custom_openai"
             or custom_llm_provider == "deepinfra"
             or custom_llm_provider == "perplexity"
