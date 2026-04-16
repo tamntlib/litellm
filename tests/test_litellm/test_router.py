@@ -1885,6 +1885,66 @@ def test_get_deployment_model_info_base_model_flow():
     print("✓ All base model flow test cases passed!")
 
 
+def test_get_deployment_model_info_chatgpt_base_model_uses_explicit_provider():
+    router = litellm.Router(
+        model_list=[
+            {
+                "model_name": "gpt-5.3-codex-spark",
+                "litellm_params": {
+                    "model": "anthropic/gpt-5.3-codex-spark",
+                    "litellm_credential_name": "cli-proxy-api-anthropic",
+                },
+            }
+        ],
+    )
+
+    mock_custom_model_info = {
+        "base_model": "chatgpt/gpt-5.3-codex-spark",
+        "input_cost_per_token": 0.001,
+        "output_cost_per_token": 0.002,
+        "custom_field": "custom_value",
+    }
+
+    mock_base_model_info = {
+        "key": "gpt-5.3-codex-spark",
+        "max_tokens": 128000,
+        "litellm_provider": "chatgpt",
+        "mode": "chat",
+    }
+
+    mock_litellm_model_name_info = {
+        "key": "gpt-5.3-codex-spark",
+        "max_tokens": 32000,
+        "litellm_provider": "anthropic",
+        "mode": "completion",
+    }
+
+    with patch.object(
+        litellm, "model_cost", {"custom-chatgpt-model-id": mock_custom_model_info}
+    ):
+        with patch.object(litellm, "get_model_info") as mock_get_model_info:
+            with patch(
+                "litellm.router.get_model_info_for_provider_aware_lookup"
+            ) as provider_aware_lookup_mock:
+                mock_get_model_info.return_value = mock_litellm_model_name_info
+                provider_aware_lookup_mock.return_value = mock_base_model_info
+
+                result = router.get_deployment_model_info(
+                    model_id="custom-chatgpt-model-id", model_name="gpt-5.3-codex-spark"
+                )
+
+                assert result is not None
+                mock_get_model_info.assert_called_once_with(
+                    model="gpt-5.3-codex-spark"
+                )
+                provider_aware_lookup_mock.assert_called_once_with(
+                    model="chatgpt/gpt-5.3-codex-spark"
+                )
+                assert result["litellm_provider"] == "chatgpt"
+                assert result["max_tokens"] == 128000
+                assert result["custom_field"] == "custom_value"
+
+
 @patch("litellm.model_cost", {})
 def test_get_deployment_model_info_base_model_merge_priority():
     """Test that base model info merging respects the correct priority order"""

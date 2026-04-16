@@ -5896,6 +5896,16 @@ def _get_model_info_helper(  # noqa: PLR0915
         )
 
 
+def get_model_info_for_provider_aware_lookup(model: str) -> ModelInfo:
+    if model.startswith("chatgpt/"):
+        custom_llm_provider, model_name = model.split("/", 1)
+        return litellm.get_model_info(
+            model=model_name, custom_llm_provider=custom_llm_provider
+        )
+
+    return litellm.get_model_info(model)
+
+
 @lru_cache(maxsize=DEFAULT_MAX_LRU_CACHE_SIZE)
 def get_model_info(
     model: str,

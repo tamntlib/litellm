@@ -2861,7 +2861,8 @@ def test_get_litellm_model_info(data):
         get_info_mock.assert_called_once_with(data["expected"])
 
 
-def test_get_litellm_model_info_chatgpt_base_model_uses_explicit_provider():
+
+def test_get_litellm_model_info_chatgpt_base_model_uses_provider_aware_lookup():
     from litellm.proxy.proxy_server import get_litellm_model_info
 
     model = {
@@ -2872,13 +2873,13 @@ def test_get_litellm_model_info_chatgpt_base_model_uses_explicit_provider():
         },
         "model_info": {"base_model": "chatgpt/gpt-5.3-codex-spark"},
     }
-    get_info_mock = MagicMock()
+    provider_aware_lookup_mock = MagicMock()
 
     with mock.patch(
-        "litellm.get_model_info",
-        new=get_info_mock,
+        "litellm.proxy.proxy_server.get_model_info_for_provider_aware_lookup",
+        new=provider_aware_lookup_mock,
     ):
         get_litellm_model_info(model=model)
-        get_info_mock.assert_called_once_with(
-            model="gpt-5.3-codex-spark", custom_llm_provider="chatgpt"
+        provider_aware_lookup_mock.assert_called_once_with(
+            "chatgpt/gpt-5.3-codex-spark"
         )

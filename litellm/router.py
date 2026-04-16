@@ -182,6 +182,7 @@ from litellm.utils import (
     Rules,
     function_setup,
     get_llm_provider,
+    get_model_info_for_provider_aware_lookup,
     get_non_default_completion_params,
     get_secret,
     get_utc_datetime,
@@ -7693,7 +7694,12 @@ class Router:
                 base_model = custom_model_info.get("base_model", None)
                 if base_model is not None:
                     ## update litellm model info with base model info
-                    base_model_info = litellm.get_model_info(model=base_model)
+                    if base_model.startswith("chatgpt/"):
+                        base_model_info = get_model_info_for_provider_aware_lookup(
+                            model=base_model
+                        )
+                    else:
+                        base_model_info = litellm.get_model_info(model=base_model)
                     if base_model_info is not None:
                         custom_model_info = custom_model_info or {}
                         # Base model provides defaults, custom model info overrides
