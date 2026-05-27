@@ -3313,9 +3313,9 @@ async def ui_view_session_spend_logs(
         description="Page number for pagination",
     ),
     page_size: int = fastapi.Query(
-        default=50,
+        default=500,
         ge=1,
-        le=100,
+        le=500,
         description="Number of items per page",
     ),
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
