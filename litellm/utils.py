@@ -5275,6 +5275,34 @@ def _get_model_info_helper(
                     ):
                         _model_info = None
 
+            # Fallback: if standard lookup failed due to provider mismatch,
+            # try each potential name as an exact key match without provider
+            # matching.  This handles DB-configured models whose
+            # ``custom_llm_provider`` (from the API route) differs from the
+            # ``litellm_provider`` in the pricing JSON (e.g. a model served
+            # via the Anthropic messages endpoint but priced under
+            # ``openrouter/…`` in model_prices_and_context_window.json).
+            if _model_info is None:
+                for _candidate in [
+                    combined_model_name,
+                    model,
+                    combined_stripped_model_name,
+                    stripped_model_name,
+                    split_model,
+                ]:
+                    _fallback_key = _get_model_cost_key(_candidate)
+                    if (
+                        _fallback_key is not None
+                        and _fallback_key.lower() == _candidate.lower()
+                    ):
+                        _fallback_info = _get_model_info_from_model_cost(
+                            key=cast(str, _fallback_key)
+                        )
+                        if _fallback_info is not None:
+                            _model_info = _fallback_info
+                            key = _fallback_key
+                            break
+
             if _model_info is None or key is None:
                 raise ValueError(
                     "This model isn't mapped yet. Add it here - https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"

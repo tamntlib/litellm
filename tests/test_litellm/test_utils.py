@@ -1152,6 +1152,122 @@ def test_check_provider_match_none_value_matches_any_provider():
     )
 
 
+def test_get_model_info_helper_fallback_on_provider_mismatch():
+    """
+    When a model exists in model_cost under a different litellm_provider than
+    the custom_llm_provider passed to _get_model_info_helper (e.g. a model
+    priced as 'openrouter/…' but requested via the Anthropic messages endpoint
+    which sets custom_llm_provider='anthropic'), the function should still
+    resolve the model info via an exact-key fallback instead of raising
+    ValueError.
+
+    Regression test for: DB-configured models with base_model pointing to a
+    different provider in model_prices_and_context_window.json caused cost=0.
+    """
+    from litellm.utils import _get_model_info_helper
+
+    test_model_key = "openrouter/xiaomi/mimo-v2.5-pro"
+    original_entry = litellm.model_cost.get(test_model_key)
+
+    try:
+        # Ensure the entry exists (it should on the server; inject if missing locally)
+        litellm.model_cost[test_model_key] = {
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 3e-6,
+            "cache_read_input_token_cost": 2e-7,
+            "litellm_provider": "openrouter",
+            "max_input_tokens": 1048576,
+            "max_output_tokens": 16384,
+            "max_tokens": 16384,
+            "mode": "chat",
+        }
+
+        # 1. Provider mismatch: custom_llm_provider='anthropic' != litellm_provider='openrouter'
+        #    Should succeed via the exact-key fallback.
+        info = _get_model_info_helper(
+            model=test_model_key, custom_llm_provider="anthropic"
+        )
+        assert info["input_cost_per_token"] == 1e-6
+        assert info["output_cost_per_token"] == 3e-6
+
+        # 2. Matching provider: should succeed via the standard path.
+        info_standard = _get_model_info_helper(
+            model=test_model_key, custom_llm_provider="openrouter"
+        )
+        assert info_standard["input_cost_per_token"] == 1e-6
+
+        # 3. Nonexistent model: should still raise.
+        with pytest.raises(Exception, match="isn't mapped yet"):
+            _get_model_info_helper(
+                model="openrouter/xiaomi/does-not-exist",
+                custom_llm_provider="anthropic",
+            )
+    finally:
+        if original_entry is None:
+            litellm.model_cost.pop(test_model_key, None)
+        else:
+            litellm.model_cost[test_model_key] = original_entry
+
+
+def test_completion_cost_with_provider_mismatch():
+    """
+    End-to-end: completion_cost should return a non-zero cost when the model
+    is priced under a different provider in model_cost than the
+    custom_llm_provider used for the API call.
+    """
+    from litellm.cost_calculator import completion_cost
+    from litellm.types.utils import ModelResponse, Usage
+
+    test_model_key = "openrouter/xiaomi/mimo-v2.5-pro"
+    original_entry = litellm.model_cost.get(test_model_key)
+
+    try:
+        litellm.model_cost[test_model_key] = {
+            "input_cost_per_token": 1e-6,
+            "output_cost_per_token": 3e-6,
+            "cache_read_input_token_cost": 2e-7,
+            "litellm_provider": "openrouter",
+            "max_input_tokens": 1048576,
+            "max_output_tokens": 16384,
+            "max_tokens": 16384,
+            "mode": "chat",
+            "supports_reasoning": True,
+            "supports_function_calling": True,
+        }
+
+        response = ModelResponse(
+            id="msg_test123",
+            model="mimo-v2.5-pro",
+            usage=Usage(
+                prompt_tokens=1000,
+                completion_tokens=10,
+                total_tokens=1010,
+                cache_creation_input_tokens=0,
+                cache_read_input_tokens=500,
+            ),
+        )
+
+        cost = completion_cost(
+            completion_response=response,
+            model="anthropic/mimo-v2.5-pro",
+            custom_llm_provider="anthropic",
+            call_type="acompletion",
+            base_model="openrouter/xiaomi/mimo-v2.5-pro",
+        )
+
+        # 500 text tokens * 1e-6 + 500 cache read * 2e-7 + 10 completion * 3e-6
+        expected = (500 * 1e-6) + (500 * 2e-7) + (10 * 3e-6)
+        assert cost == pytest.approx(expected, rel=1e-3), (
+            f"Expected non-zero cost ~{expected}, got {cost}"
+        )
+        assert cost > 0
+    finally:
+        if original_entry is None:
+            litellm.model_cost.pop(test_model_key, None)
+        else:
+            litellm.model_cost[test_model_key] = original_entry
+
+
 def test_get_provider_rerank_config():
     """
     Test the get_provider_rerank_config function for various providers
