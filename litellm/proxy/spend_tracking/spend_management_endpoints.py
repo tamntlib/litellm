@@ -3349,9 +3349,9 @@ async def ui_view_session_spend_logs(
         description="Page number for pagination",
     ),
     page_size: int = fastapi.Query(
-        default=50,
+        default=500,
         ge=1,
-        le=100,
+        le=500,
         description="Number of items per page",
     ),
     user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
@@ -3400,7 +3400,7 @@ async def ui_view_session_spend_logs(
                 session_id, status, mcp_namespaced_tool_name, agent_id
             FROM "LiteLLM_SpendLogs"
             WHERE session_id = $1
-            ORDER BY "startTime" ASC
+            ORDER BY "startTime" DESC
             LIMIT $2 OFFSET $3
         """
         result = await prisma_client.db.query_raw(
