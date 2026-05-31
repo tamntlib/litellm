@@ -13,6 +13,9 @@ from .responses_id_security import ResponsesIDSecurity
 from litellm.integrations.alias_aware_vision_model_router import (
     AliasAwareVisionModelRouter,
 )
+from litellm.integrations.claude_code_version_check_hook import (
+    ClaudeCodeVersionCheckHook,
+)
 
 # List of all available hooks that can be enabled.
 # Defined before the enterprise import below so that any module re-imported
@@ -26,6 +29,7 @@ PROXY_HOOKS = {
     "litellm_skills": SkillsInjectionHook,
     "max_iterations_limiter": _PROXY_MaxIterationsHandler,
     "max_budget_per_session_limiter": _PROXY_MaxBudgetPerSessionHandler,
+    "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
     "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
 }
 
