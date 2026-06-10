@@ -17,6 +17,9 @@ from litellm.integrations.alias_aware_vision_model_router import (
 from litellm.integrations.claude_code_version_check_hook import (
     ClaudeCodeVersionCheckHook,
 )
+from litellm.integrations.request_response_sanitizer_hook import (
+    RequestResponseSanitizerHook,
+)
 
 # List of all available hooks that can be enabled.
 # Defined before the enterprise import below so that any module re-imported
@@ -33,6 +36,7 @@ PROXY_HOOKS = {
     "sensitive_data_routing": _PROXY_SensitiveDataRoutingHandler,
     "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
     "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
+    "request_response_sanitizer_hook": RequestResponseSanitizerHook,
 }
 
 ## FEATURE FLAG HOOKS ##
