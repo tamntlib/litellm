@@ -16,6 +16,9 @@ from litellm.integrations.alias_aware_vision_model_router import (
 from litellm.integrations.claude_code_version_check_hook import (
     ClaudeCodeVersionCheckHook,
 )
+from litellm.integrations.request_response_sanitizer_hook import (
+    RequestResponseSanitizerHook,
+)
 
 # List of all available hooks that can be enabled.
 # Defined before the enterprise import below so that any module re-imported
@@ -31,6 +34,7 @@ PROXY_HOOKS = {
     "max_budget_per_session_limiter": _PROXY_MaxBudgetPerSessionHandler,
     "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
     "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
+    "request_response_sanitizer_hook": RequestResponseSanitizerHook,
 }
 
 ## FEATURE FLAG HOOKS ##
