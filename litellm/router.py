@@ -10342,16 +10342,52 @@ class Router:
         - str, the litellm model name
         - None, if model is not in model group alias
         """
-        if model not in self.model_group_alias:
+        if self.model_group_alias is None:
             return None
 
-        _item = self.model_group_alias[model]
-        if isinstance(_item, str):
-            model = _item
-        else:
-            model = _item["model"]
+        if model in self.model_group_alias:
+            return self._get_model_group_alias_item_model(self.model_group_alias[model])
 
-        return model
+        pattern_router = PatternMatchRouter()
+        for alias, item in self._iter_model_group_aliases_by_specificity():
+            if "*" not in alias:
+                continue
+
+            pattern_match = re.match(pattern_router._pattern_to_regex(alias), model)
+            if pattern_match is None:
+                continue
+
+            target_model = self._get_model_group_alias_item_model(item)
+            if target_model is not None:
+                return PatternMatchRouter.set_deployment_model_name(
+                    matched_pattern=pattern_match,
+                    litellm_deployment_litellm_model=target_model,
+                )
+
+        return None
+
+    def _get_model_group_alias_item_model(
+        self, item: Union[str, RouterModelGroupAliasItem]
+    ) -> Optional[str]:
+        if isinstance(item, str):
+            return item
+        return item.get("model")
+
+    def _iter_model_group_aliases_by_specificity(
+        self,
+    ) -> List[Tuple[str, Union[str, RouterModelGroupAliasItem]]]:
+        if self.model_group_alias is None:
+            return []
+        alias_items = [
+            (alias, item)
+            for alias, item in self.model_group_alias.items()
+            if isinstance(alias, str)
+        ]
+        return sorted(
+            alias_items,
+            key=lambda item: (len(item[0]), item[0].count("*")),
+            reverse=True,
+        )
 
     def _get_deployment_by_litellm_model(self, model: str) -> List:
         """
