@@ -1490,6 +1490,28 @@ def test_get_model_from_alias(model_list):
     assert model == "gpt-5-mini"
 
 
+def test_get_model_from_wildcard_alias(model_list):
+    router = Router(
+        model_list=model_list,
+        model_group_alias={"gpta-*": "anthropic/primary"},
+    )
+
+    model = router._get_model_from_alias(model="gpta-1")
+
+    assert model == "anthropic/primary"
+
+
+def test_get_model_from_wildcard_alias_substitutes_target_model(model_list):
+    router = Router(
+        model_list=model_list,
+        model_group_alias={"gpta-*": "anthropic/*"},
+    )
+
+    model = router._get_model_from_alias(model="gpta-primary")
+
+    assert model == "anthropic/primary"
+
+
 def test_get_deployment_by_litellm_model(model_list):
     """Test if the 'get_deployment_by_litellm_model' function is working correctly"""
     router = Router(model_list=model_list)
