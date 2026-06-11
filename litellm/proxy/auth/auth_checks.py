@@ -3690,7 +3690,11 @@ def _can_object_call_model(
     potential_models: Final = [model]
     if model in litellm.model_alias_map:
         potential_models.append(litellm.model_alias_map[model])
-    elif llm_router and model in llm_router.model_group_alias:
+    elif (
+        llm_router
+        and isinstance(llm_router.model_group_alias, dict)
+        and llm_router.model_group_alias
+    ):
         _model: Final = llm_router._get_model_from_alias(model)
         if _model:
             potential_models.append(_model)
