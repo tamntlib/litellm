@@ -525,8 +525,9 @@ async def route_request(  # noqa: PLR0915 - Complex routing function, refactorin
             return getattr(llm_router, f"{route_type}")(**data)
 
         elif (
-            llm_router.model_group_alias is not None
-            and data["model"] in llm_router.model_group_alias
+            isinstance(llm_router.model_group_alias, dict)
+            and llm_router.model_group_alias
+            and llm_router._get_model_from_alias(data["model"]) is not None
         ):
             return getattr(llm_router, f"{route_type}")(**data)
 
