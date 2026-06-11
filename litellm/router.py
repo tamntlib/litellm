@@ -1163,7 +1163,10 @@ class Router:
         return (
             model in self.model_names
             or self.has_model_id(model)
-            or (self.model_group_alias is not None and model in self.model_group_alias)
+            or (
+                isinstance(self.model_group_alias, Mapping)
+                and self._get_model_from_alias(model) is not None
+            )
             or self.get_routing_group(model) is not None
         )
 
@@ -10701,7 +10704,39 @@ class Router:
         - str, the litellm model name
         - None, if model is not in model group alias
         """
-        return resolve_model_group_alias(self.model_group_alias, model)
+        exact_model: Final = resolve_model_group_alias(self.model_group_alias, model)
+        if exact_model is not None:
+            return exact_model
+
+        if not isinstance(self.model_group_alias, Mapping):
+            return None
+
+        pattern_router: Final = PatternMatchRouter()
+        alias_items: Final = sorted(
+            (
+                (alias, item)
+                for alias, item in self.model_group_alias.items()
+                if isinstance(alias, str)
+            ),
+            key=lambda item: (len(item[0]), item[0].count("*")),
+            reverse=True,
+        )
+        for alias, item in alias_items:
+            if "*" not in alias:
+                continue
+
+            pattern_match: Final = re.match(pattern_router._pattern_to_regex(alias), model)
+            if pattern_match is None:
+                continue
+
+            target_model: Final = resolve_model_group_alias({alias: item}, alias)
+            if target_model is not None:
+                return PatternMatchRouter.set_deployment_model_name(
+                    matched_pattern=pattern_match,
+                    litellm_deployment_litellm_model=target_model,
+                )
+
+        return None
 
     def _get_deployment_by_litellm_model(self, model: str) -> list:
         """
