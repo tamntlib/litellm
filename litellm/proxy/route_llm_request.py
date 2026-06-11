@@ -594,8 +594,11 @@ async def route_request(
             )
             or data["model"] in router_model_names
             or llm_router.has_model_id(data["model"])
-            or llm_router.model_group_alias is not None
-            and data["model"] in llm_router.model_group_alias
+            or (
+                isinstance(llm_router.model_group_alias, dict)
+                and llm_router.model_group_alias
+                and llm_router._get_model_from_alias(data["model"]) is not None
+            )
         ):
             return getattr(llm_router, f"{route_type}")(**data)
 
