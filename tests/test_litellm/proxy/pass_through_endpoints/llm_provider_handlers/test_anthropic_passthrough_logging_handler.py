@@ -214,6 +214,121 @@ class TestAzureAnthropicCostCalculation:
         mock_logging_obj.litellm_call_id = "test-call-id"
         return mock_logging_obj
 
+    def _create_cross_provider_base_model_logging_obj(
+        self, base_model="mock-openai-model"
+    ):
+        litellm_params = {
+            "litellm_metadata": {
+                "model_group": "anthropic/primary",
+                "model_info": {"base_model": base_model},
+            }
+        }
+        logging_obj = self._create_mock_logging_obj(
+            model="anthropic/primary",
+            custom_llm_provider="anthropic",
+        )
+        logging_obj.model_call_details["litellm_params"] = litellm_params
+        logging_obj.litellm_params = litellm_params
+        logging_obj.get_router_model_id.return_value = None
+        return logging_obj
+
+    def test_non_streaming_alias_cost_uses_base_model_from_litellm_metadata(
+        self, monkeypatch
+    ):
+        import litellm
+        from litellm.types.utils import ModelResponse, Usage
+
+        monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+        monkeypatch.setattr(litellm, "model_cost", litellm.get_model_cost_map(url=""))
+        mock_base_model = "mock-openai-model"
+        monkeypatch.setitem(
+            litellm.model_cost,
+            mock_base_model,
+            {
+                "input_cost_per_token": 0.001,
+                "output_cost_per_token": 0.002,
+                "litellm_provider": "openai",
+                "max_tokens": 4096,
+            },
+        )
+        logging_obj = self._create_cross_provider_base_model_logging_obj(
+            base_model=mock_base_model
+        )
+        response = ModelResponse(
+            id="test-id",
+            model="anthropic/primary",
+            choices=[],
+            usage=Usage(prompt_tokens=307, completion_tokens=5, total_tokens=312),
+        )
+
+        kwargs = AnthropicPassthroughLoggingHandler._create_anthropic_response_logging_payload(
+            litellm_model_response=response,
+            model="anthropic/primary",
+            kwargs={},
+            start_time=datetime.now(),
+            end_time=datetime.now(),
+            logging_obj=logging_obj,
+        )
+
+        assert kwargs["response_cost"] == pytest.approx(0.317)
+        assert logging_obj.model_call_details["response_cost"] == pytest.approx(0.317)
+        assert kwargs["model"] == "anthropic/primary"
+        assert "complete_streaming_response" not in logging_obj.model_call_details
+        logging_obj.set_cost_breakdown.assert_called_once()
+        breakdown = logging_obj.set_cost_breakdown.call_args.kwargs
+        assert breakdown["input_cost"] == pytest.approx(0.307)
+        assert breakdown["output_cost"] == pytest.approx(0.01)
+
+    def test_streaming_alias_cost_uses_base_model_from_litellm_metadata(
+        self, monkeypatch
+    ):
+        import litellm
+        from litellm.types.utils import ModelResponse, Usage
+
+        monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+        monkeypatch.setattr(litellm, "model_cost", litellm.get_model_cost_map(url=""))
+        mock_base_model = "mock-openai-model"
+        monkeypatch.setitem(
+            litellm.model_cost,
+            mock_base_model,
+            {
+                "input_cost_per_token": 0.001,
+                "output_cost_per_token": 0.002,
+                "litellm_provider": "openai",
+                "max_tokens": 4096,
+            },
+        )
+        logging_obj = self._create_cross_provider_base_model_logging_obj(
+            base_model=mock_base_model
+        )
+        logging_obj.model_call_details["stream"] = True
+        response = ModelResponse(
+            id="test-id",
+            model="anthropic/primary",
+            choices=[],
+            usage=Usage(prompt_tokens=307, completion_tokens=5, total_tokens=312),
+        )
+
+        with patch.object(
+            AnthropicPassthroughLoggingHandler,
+            "_build_complete_streaming_response",
+            return_value=response,
+        ):
+            result = AnthropicPassthroughLoggingHandler._handle_logging_anthropic_collected_chunks(
+                litellm_logging_obj=logging_obj,
+                passthrough_success_handler_obj=None,
+                url_route="/v1/messages",
+                request_body={"model": "anthropic/primary", "stream": True},
+                endpoint_type="messages",
+                start_time=datetime.now(),
+                all_chunks=[],
+                end_time=datetime.now(),
+            )
+
+        assert result["kwargs"]["response_cost"] == pytest.approx(0.317)
+        assert logging_obj.model_call_details["response_cost"] == pytest.approx(0.317)
+        assert logging_obj.model_call_details["complete_streaming_response"] is response
+
     @patch("litellm.completion_cost")
     def test_cost_calculation_with_azure_ai_custom_llm_provider(
         self, mock_completion_cost
