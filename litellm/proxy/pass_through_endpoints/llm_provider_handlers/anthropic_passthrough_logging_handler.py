@@ -274,6 +274,8 @@ class AnthropicPassthroughLoggingHandler:
         model: str,
         logging_obj: LiteLLMLoggingObj,
     ) -> float:
+        from litellm.proxy.proxy_server import llm_router
+
         if logging_obj.model_call_details.get("cache_hit") is True:
             return 0.0
         custom_llm_provider: Final = logging_obj.model_call_details.get("custom_llm_provider")
@@ -282,6 +284,13 @@ class AnthropicPassthroughLoggingHandler:
             if custom_llm_provider and not model.startswith(f"{custom_llm_provider}/")
             else model
         )
+        router_model_id: Final = logging_obj.get_router_model_id()
+        deployment: Final = (
+            llm_router.get_deployment(model_id=router_model_id)
+            if llm_router is not None and isinstance(router_model_id, str)
+            else None
+        )
+        base_model: Final = deployment.model_info.base_model if deployment is not None else None
         return litellm.completion_cost(
             completion_response=litellm_model_response,
             model=model_for_cost,
@@ -289,7 +298,9 @@ class AnthropicPassthroughLoggingHandler:
             custom_pricing=use_custom_pricing_for_model(
                 litellm_params=(logging_obj.litellm_params if hasattr(logging_obj, "litellm_params") else None)
             ),
-            router_model_id=logging_obj.get_router_model_id(),
+            base_model=base_model,
+            router_model_id=router_model_id,
+            litellm_logging_obj=logging_obj,
         )
 
     @staticmethod
