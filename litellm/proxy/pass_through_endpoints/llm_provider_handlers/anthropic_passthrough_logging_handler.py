@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, cast
 
 import httpx
+from pydantic import TypeAdapter, ValidationError
 
 import litellm
 from litellm._logging import verbose_proxy_logger
@@ -30,6 +31,7 @@ from litellm.types.utils import (
     ModelResponse,
     TextCompletionResponse,
 )
+from litellm.utils import _get_base_model_from_metadata
 
 if TYPE_CHECKING:
     from litellm.types.passthrough_endpoints.pass_through_endpoints import EndpointType
@@ -38,6 +40,9 @@ if TYPE_CHECKING:
 else:
     PassThroughEndpointLogging = Any
     EndpointType = Any
+
+
+_BASE_MODEL_ADAPTER: TypeAdapter[str | None] = TypeAdapter(str | None)
 
 
 class AnthropicPassthroughLoggingHandler:
@@ -255,13 +260,21 @@ class AnthropicPassthroughLoggingHandler:
             custom_pricing: Final = use_custom_pricing_for_model(
                 litellm_params=(logging_obj.litellm_params if hasattr(logging_obj, "litellm_params") else None)
             )
+            try:
+                base_model = _BASE_MODEL_ADAPTER.validate_python(
+                    _get_base_model_from_metadata(model_call_details=logging_obj.model_call_details)
+                )
+            except ValidationError:
+                base_model = None
 
             response_cost: Final = litellm.completion_cost(
                 completion_response=litellm_model_response,
                 model=model_for_cost,
                 custom_llm_provider=custom_llm_provider,
                 custom_pricing=custom_pricing,
+                base_model=base_model,
                 router_model_id=router_model_id,
+                litellm_logging_obj=logging_obj,
             )
 
             kwargs["response_cost"] = response_cost
