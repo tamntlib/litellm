@@ -43,6 +43,21 @@ def test_get_combined_callback_list_preserves_insertion_order(logging_obj):
     ) == ["prometheus", "langfuse", "datadog", "otel", "s3", "gcs_bucket", "arize", "logfire"]
 
 
+def test_model_cost_information_uses_base_model_pricing_provider():
+    from litellm.litellm_core_utils.litellm_logging import StandardLoggingPayloadSetup
+
+    model_cost_information = StandardLoggingPayloadSetup.get_model_cost_information(
+        base_model="gpt-5.6-sol",
+        custom_pricing=False,
+        custom_llm_provider="anthropic",
+        init_response_obj=ModelResponse(model="anthropic/primary"),
+    )
+
+    assert model_cost_information["model_map_key"] == "gpt-5.6-sol"
+    assert model_cost_information["model_map_value"] is not None
+    assert model_cost_information["model_map_value"]["litellm_provider"] == "openai"
+
+
 def test_get_masked_api_base(logging_obj):
     api_base = "https://api.openai.com/v1"
     masked_api_base = logging_obj._get_masked_api_base(api_base)

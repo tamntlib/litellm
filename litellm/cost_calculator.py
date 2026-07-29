@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from httpx import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 import litellm
 import litellm._logging
@@ -120,6 +120,8 @@ from litellm.utils import (
     TextCompletionResponse,
     TranscriptionResponse,
     _cached_get_model_info_helper,
+    _get_model_cost_key,
+    _get_model_info_from_model_cost,
     token_counter,
 )
 
@@ -726,6 +728,70 @@ def _get_provider_for_cost_calc(
     return custom_llm_provider
 
 
+class _ModelCostProviderInfo(BaseModel):
+    litellm_provider: str | None = None
+
+
+def _get_model_cost_entry_provider(model: str) -> str | None:
+    model_cost_key = _get_model_cost_key(model)
+    if model_cost_key is None:
+        return None
+
+    try:
+        model_cost_entry = _ModelCostProviderInfo.model_validate(_get_model_info_from_model_cost(model_cost_key))
+    except (KeyError, ValidationError):
+        return None
+    return model_cost_entry.litellm_provider
+
+
+def _resolve_base_model_pricing_provider(
+    base_model: str,
+    transport_provider: str | None,
+) -> str | None:
+    provider_prefix = base_model.split("/", 1)[0]
+    if provider_prefix in LlmProvidersSet:
+        return provider_prefix
+
+    if transport_provider is not None and _get_model_cost_key(f"{transport_provider}/{base_model}") is not None:
+        return transport_provider
+
+    entry_provider = _get_model_cost_entry_provider(base_model)
+    if entry_provider is not None:
+        return entry_provider
+
+    try:
+        _, inferred_provider, _, _ = litellm.get_llm_provider(model=base_model)
+        return inferred_provider
+    except litellm.exceptions.BadRequestError as e:
+        verbose_logger.debug(
+            f"litellm.cost_calculator.py::_resolve_base_model_pricing_provider() - Error inferring pricing provider - {e!s}"
+        )
+        return transport_provider
+
+
+def _resolve_model_name_and_provider_for_cost_calc(
+    selected_model: str | None,
+    model: str | None,
+    base_model: str | None = None,
+    custom_pricing: bool | None = None,
+    custom_llm_provider: str | None = None,
+) -> tuple[str | None, str | None]:
+    transport_provider = _get_provider_for_cost_calc(
+        model=model,
+        custom_llm_provider=custom_llm_provider,
+    )
+    if base_model is not None and custom_pricing is not True:
+        return (
+            base_model,
+            _resolve_base_model_pricing_provider(
+                base_model=base_model,
+                transport_provider=transport_provider,
+            ),
+        )
+
+    return selected_model, transport_provider
+
+
 def _select_model_name_for_cost_calc(
     model: str | None,
     completion_response: Any | None,
@@ -1221,6 +1287,13 @@ def completion_cost(
             base_model=base_model,
             router_model_id=router_model_id,
         )
+        selected_model, selected_pricing_llm_provider = _resolve_model_name_and_provider_for_cost_calc(
+            selected_model=selected_model,
+            model=model,
+            custom_llm_provider=custom_llm_provider if isinstance(custom_llm_provider, str) else None,
+            custom_pricing=custom_pricing,
+            base_model=base_model,
+        )
 
         potential_model_names: Final = [
             selected_model,
@@ -1230,6 +1303,14 @@ def completion_cost(
             potential_model_names.append(model)
 
         for idx, model in enumerate(potential_model_names):
+            pricing_llm_provider = (
+                selected_pricing_llm_provider
+                if idx == 0
+                else _get_provider_for_cost_calc(
+                    model=model,
+                    custom_llm_provider=custom_llm_provider if isinstance(custom_llm_provider, str) else None,
+                )
+            )
             try:
                 if verbose_logger.isEnabledFor(logging.DEBUG):
                     verbose_logger.debug("selected model name for cost calculation: %s", model)
@@ -1295,6 +1376,8 @@ def completion_cost(
                     hidden_params = getattr(completion_response, "_hidden_params", None)
                     if hidden_params is not None:
                         custom_llm_provider = hidden_params.get("custom_llm_provider", custom_llm_provider or None)
+                        if base_model is None or custom_pricing is True:
+                            pricing_llm_provider = custom_llm_provider
                         region_name = hidden_params.get("region_name", region_name)
 
                         # For Gemini/Vertex AI responses, trafficType is stored in
@@ -1327,11 +1410,13 @@ def completion_cost(
                     raise ValueError(
                         f"Model is None and does not exist in passed completion_response. Passed completion_response={completion_response}, model={model}"
                     )
-                if custom_llm_provider is None:
+                if pricing_llm_provider is None:
                     try:
-                        model, custom_llm_provider, _, _ = litellm.get_llm_provider(
+                        model, pricing_llm_provider, _, _ = litellm.get_llm_provider(
                             model=model
                         )  # strip the llm provider from the model name -> for image gen cost calculation
+                        if custom_llm_provider is None:
+                            custom_llm_provider = pricing_llm_provider
                     except Exception as e:
                         verbose_logger.debug(
                             "litellm.cost_calculator.py::completion_cost() - Error inferring custom_llm_provider - %s",
@@ -1516,7 +1601,7 @@ def completion_cost(
 
                     return MCPCostCalculator.calculate_mcp_tool_call_cost(litellm_logging_obj=litellm_logging_obj)
                 # Calculate cost based on prompt_tokens, completion_tokens
-                if "togethercomputer" in model or "together_ai" in model or custom_llm_provider == "together_ai":
+                if "togethercomputer" in model or "together_ai" in model or pricing_llm_provider == "together_ai":
                     # together ai prices based on size of llm
                     # get_model_params_and_category takes a model name and returns the category of LLM size it is in model_prices_and_context_window.json
 
@@ -1533,7 +1618,7 @@ def completion_cost(
                         f"Model is None and does not exist in passed completion_response. Passed completion_response={completion_response}, model={model}"
                     )
 
-                if custom_llm_provider is not None and custom_llm_provider == "vertex_ai":
+                if pricing_llm_provider is not None and pricing_llm_provider == "vertex_ai":
                     # Calculate the prompt characters + response characters
                     if len(messages) > 0:
                         prompt_string = litellm.utils.get_formatted_prompt(
@@ -1557,7 +1642,7 @@ def completion_cost(
                     model=model,
                     prompt_tokens=prompt_tokens or 0,
                     completion_tokens=completion_tokens or 0,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_llm_provider,
                     response_time_ms=total_time,
                     region_name=region_name,
                     custom_cost_per_second=custom_cost_per_second,
@@ -1608,7 +1693,7 @@ def completion_cost(
                     response_object=completion_response,
                     usage=cost_per_token_usage_object,
                     standard_built_in_tools_params=standard_built_in_tools_params,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_llm_provider,
                 )
                 _final_cost += cost_for_built_in_tools
                 if additional_costs:
@@ -1651,7 +1736,7 @@ def completion_cost(
                     _cache_creation_cost: float | None = None
                     if cost_per_token_usage_object is not None and model:
                         _breakdown_provider: str | None = (
-                            custom_llm_provider if isinstance(custom_llm_provider, str) else None
+                            pricing_llm_provider if isinstance(pricing_llm_provider, str) else None
                         )
                         _token_type_breakdown = get_token_type_cost_breakdown(
                             model=model,
