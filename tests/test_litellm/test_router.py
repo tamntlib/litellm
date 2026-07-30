@@ -5,6 +5,7 @@ import os
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 sys.path.insert(
@@ -3041,6 +3042,74 @@ async def test_aresponses_enforces_context_window_pre_call_check():
             model="small-ctx",
             input="this responses input is definitely much longer than five tokens for sure",
         )
+
+
+@pytest.mark.asyncio
+async def test_aresponses_fallback_does_not_send_internal_metadata_to_provider():
+    router = litellm.Router(
+        model_list=[
+            {
+                "model_name": "primary-model",
+                "litellm_params": {
+                    "model": "openai/primary-model",
+                    "api_base": "https://primary.example/v1",
+                    "api_key": "primary-key",
+                },
+            },
+            {
+                "model_name": "fallback-model",
+                "litellm_params": {
+                    "model": "openai/fallback-model",
+                    "api_base": "https://fallback.example/v1",
+                    "api_key": "fallback-key",
+                },
+            },
+        ],
+        fallbacks=[{"primary-model": ["fallback-model"]}],
+        num_retries=0,
+    )
+
+    async def strict_responses_upstream(*args, **kwargs):
+        request_body = kwargs.get("json", {})
+        if "metadata" in request_body:
+            response = httpx.Response(
+                status_code=400,
+                json={"detail": "Unsupported parameter: metadata"},
+                request=httpx.Request("POST", kwargs["url"]),
+            )
+            response.raise_for_status()
+        return httpx.Response(
+            status_code=200,
+            json={
+                "id": "resp_fallback",
+                "object": "response",
+                "created_at": 1734366691,
+                "status": "completed",
+                "model": "fallback-model",
+                "output": [],
+                "parallel_tool_calls": True,
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                    "total_tokens": 2,
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                },
+            },
+            request=httpx.Request("POST", kwargs["url"]),
+        )
+
+    with patch(
+        "litellm.llms.custom_httpx.http_handler.AsyncHTTPHandler.post",
+        new_callable=AsyncMock,
+        side_effect=strict_responses_upstream,
+    ):
+        response = await router.aresponses(
+            model="primary-model",
+            input="hello",
+            mock_testing_fallbacks=True,
+        )
+
+    assert response.model == "fallback-model"
 
 
 def test_get_deployment_model_info_base_model_flow():

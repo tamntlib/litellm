@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+import litellm
 from litellm.router_utils.fallback_event_handlers import (
     get_fallback_model_group,
     run_async_fallback,
@@ -93,6 +94,36 @@ class RecordingRouter:
     async def async_function_with_fallbacks(self, *args, **kwargs):
         self.received_kwargs = kwargs
         return StreamingWrapper()
+
+
+class StrictResponsesFallbackRouter:
+    def log_retry(self, kwargs, e):
+        return kwargs
+
+    async def async_function_with_fallbacks(self, *args, **kwargs):
+        assert "metadata" not in kwargs, "Responses upstream rejects top-level metadata"
+        assert kwargs["litellm_metadata"]["model_group"] == "fallback-model"
+        return StreamingWrapper()
+
+
+@pytest.mark.parametrize(
+    "responses_function",
+    [litellm.aresponses, litellm.acompact_responses],
+    ids=["responses", "responses-compact"],
+)
+@pytest.mark.asyncio
+async def test_run_async_fallback_keeps_responses_metadata_internal(responses_function):
+    await run_async_fallback(
+        litellm_router=StrictResponsesFallbackRouter(),
+        fallback_model_group=["fallback-model"],
+        original_model_group="primary-model",
+        original_exception=RuntimeError("primary model failed"),
+        max_fallbacks=3,
+        fallback_depth=0,
+        original_generic_function=responses_function,
+        input="hello",
+        litellm_metadata={"model_group": "primary-model"},
+    )
 
 
 @pytest.mark.asyncio
