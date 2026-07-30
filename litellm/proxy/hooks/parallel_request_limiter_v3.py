@@ -354,8 +354,17 @@ class RequestRateLimiterStash:
     ``reservation_released`` flag and ``parallel_slot`` clearing effective
     across sibling callbacks: the first release wins, later callbacks observe
     the cleared state.
+
+    Because the stash is context-inherited, nested LiteLLM calls made inside
+    the request (LLM-judge guardrails, silent experiments) would also see it
+    from their own logging callbacks. ``owner_litellm_call_id`` pins the stash
+    to the proxy request's ``litellm_call_id`` so those callbacks can tell the
+    owning request's events apart from a nested call's: router retries and
+    fallbacks reuse the request's call id and keep access, while nested calls
+    mint fresh ids and are ignored.
     """
 
+    owner_litellm_call_id: Optional[str] = None
     rate_limit_response: Optional[RateLimitResponse] = None
     parallel_slot: Optional[ParallelSlotAcquisition] = None
     reserved_tokens: int = 0
@@ -379,6 +388,30 @@ def get_or_create_request_stash() -> RequestRateLimiterStash:
         stash = RequestRateLimiterStash()
         _request_stash.set(stash)
     return stash
+
+
+def claim_request_stash_for_data(data: dict) -> RequestRateLimiterStash:
+    stash = get_or_create_request_stash()
+    owner_call_id = data.get("litellm_call_id")
+    if isinstance(owner_call_id, str):
+        stash.owner_litellm_call_id = owner_call_id
+    return stash
+
+
+def get_request_stash_for_call(litellm_call_id: Optional[str]) -> Optional[RequestRateLimiterStash]:
+    stash = _request_stash.get()
+    if stash is None:
+        return None
+    if stash.owner_litellm_call_id is None or litellm_call_id is None:
+        return stash
+    return stash if litellm_call_id == stash.owner_litellm_call_id else None
+
+
+def _call_id_from_callback_kwargs(kwargs: object) -> Optional[str]:
+    if not isinstance(kwargs, dict):
+        return None
+    call_id = kwargs.get("litellm_call_id")
+    return call_id if isinstance(call_id, str) else None
 
 
 class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
@@ -2332,7 +2365,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         """
         verbose_proxy_logger.debug("Inside Rate Limit Pre-Call Hook")
 
-        stash = get_or_create_request_stash()
+        stash = claim_request_stash_for_data(data)
 
         #########################################################
         # Check if the call type has a specific rate limiter
@@ -2526,8 +2559,6 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
                     stored_response = stash.rate_limit_response
                     if stored_response is not None:
                         stored_response["statuses"].extend(tpm_response["statuses"])
-                    elif tpm_response["statuses"]:
-                        stash.rate_limit_response = tpm_response
 
                     verbose_proxy_logger.debug(f"TPM tokens reserved: {estimated_tokens} for model {requested_model}")
 
@@ -2837,7 +2868,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
             _usage = getattr(response_obj, "usage", None)
             total_tokens = self._get_total_tokens_from_usage(usage=_usage, rate_limit_type=rate_limit_type)
 
-        stash = get_request_stash()
+        stash = get_request_stash_for_call(_call_id_from_callback_kwargs(kwargs))
         reserved_tokens = stash.reserved_tokens if stash is not None else 0
         reserved_model = stash.reserved_model if stash is not None else None
         reserved_scopes: FrozenSet[Tuple[str, str]] = stash.reserved_scopes if stash is not None else frozenset()
@@ -2896,7 +2927,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         try:
             verbose_proxy_logger.debug("INSIDE parallel request limiter ASYNC SUCCESS LOGGING")
 
-            stash = get_request_stash()
+            stash = get_request_stash_for_call(_call_id_from_callback_kwargs(kwargs))
             acquisition = stash.parallel_slot if stash is not None else None
             if stash is not None and acquisition is not None:
                 await self._release_parallel_request_slots(
@@ -2953,7 +2984,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
         if not isinstance(kwargs, dict):
             return
 
-        stash = get_request_stash()
+        stash = get_request_stash_for_call(_call_id_from_callback_kwargs(kwargs))
         rate_limit_response = stash.rate_limit_response if stash is not None else None
         statuses = rate_limit_response["statuses"] if rate_limit_response is not None else []
         if not statuses:
@@ -2995,7 +3026,7 @@ class _PROXY_MaxParallelRequestsHandler_v3(CustomLogger):
 
             pipeline_operations: List[RedisPipelineIncrementOperation] = []
 
-            stash = get_request_stash()
+            stash = get_request_stash_for_call(_call_id_from_callback_kwargs(kwargs))
             acquisition = stash.parallel_slot if stash is not None else None
             if stash is not None and acquisition is not None:
                 await self._release_parallel_request_slots(
