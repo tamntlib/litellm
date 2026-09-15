@@ -1,6 +1,14 @@
 import os
 from typing import Final, Literal
 
+from litellm.integrations.alias_aware_vision_model_router import (
+    AliasAwareVisionModelRouter,
+)
+from litellm.integrations.claude_code_version_check_hook import (
+    ClaudeCodeVersionCheckHook,
+)
+from litellm.integrations.endpoint_model_routing_hook import EndpointModelRoutingHook
+
 from . import *
 from .cache_control_check import _PROXY_CacheControlCheck
 from .litellm_skills import SkillsInjectionHook
@@ -11,12 +19,6 @@ from .parallel_request_limiter import _PROXY_MaxParallelRequestsHandler
 from .parallel_request_limiter_v3 import _PROXY_MaxParallelRequestsHandler_v3
 from .responses_id_security import ResponsesIDSecurity
 from .sensitive_data_routing import _PROXY_SensitiveDataRoutingHandler
-from litellm.integrations.alias_aware_vision_model_router import (
-    AliasAwareVisionModelRouter,
-)
-from litellm.integrations.claude_code_version_check_hook import (
-    ClaudeCodeVersionCheckHook,
-)
 
 # List of all available hooks that can be enabled.
 # Defined before the enterprise import below so that any module re-imported
@@ -33,6 +35,7 @@ PROXY_HOOKS: Final = {
     "sensitive_data_routing": _PROXY_SensitiveDataRoutingHandler,
     "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
     "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
+    "endpoint_model_routing": EndpointModelRoutingHook,
 }
 
 ## FEATURE FLAG HOOKS ##
