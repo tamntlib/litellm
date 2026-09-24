@@ -7,6 +7,7 @@ from litellm.integrations.alias_aware_vision_model_router import (
 from litellm.integrations.claude_code_version_check_hook import (
     ClaudeCodeVersionCheckHook,
 )
+from litellm.integrations.client_user_agent_hook import ClientUserAgentHook
 from litellm.integrations.endpoint_model_routing_hook import EndpointModelRoutingHook
 
 from . import *
@@ -36,6 +37,7 @@ PROXY_HOOKS: Final = {
     "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
     "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
     "endpoint_model_routing": EndpointModelRoutingHook,
+    "client_user_agent": ClientUserAgentHook,
 }
 
 ## FEATURE FLAG HOOKS ##
