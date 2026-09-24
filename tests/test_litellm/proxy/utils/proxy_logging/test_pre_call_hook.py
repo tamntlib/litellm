@@ -450,6 +450,7 @@ def test_every_pre_call_customlogger_is_deliberately_classified():
         "ClaudeCodeVersionCheckHook",
         "AliasAwareVisionModelRouter",
         "EndpointModelRoutingHook",
+        "ClientUserAgentHook",
         "_PROXY_MaxParallelRequestsHandler_v3",
         "_PROXY_MaxIterationsHandler",
         "_PROXY_MaxBudgetPerSessionHandler",
