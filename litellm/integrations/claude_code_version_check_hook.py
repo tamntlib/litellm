@@ -16,7 +16,10 @@ class ClaudeCodeVersionCheckHook(CustomLogger):
         parts = version_str.split(".")
         if len(parts) != 3 or not all(part.isdigit() for part in parts):
             return None
-        return tuple(int(part) for part in parts)
+        try:
+            return tuple(int(part) for part in parts)
+        except ValueError:
+            return None
 
     @staticmethod
     def _get_configured_models() -> set[str]:
@@ -73,7 +76,7 @@ class ClaudeCodeVersionCheckHook(CustomLogger):
                     status_code=403, detail="Only Claude Code is allowed"
                 )
 
-            version_token = user_agent[idx + len(marker) :].split()[0].strip()
+            version_token = next(iter(user_agent[idx + len(marker) :].split()), "")
             numeric_version = version_token.split("-")[0].split("+")[0].strip()
 
             current = self._parse_version(numeric_version)
