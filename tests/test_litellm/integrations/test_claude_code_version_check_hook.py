@@ -68,8 +68,11 @@ async def test_reads_user_agent_from_metadata(hook):
 
 
 @pytest.mark.asyncio
-async def test_skips_unconfigured_model_without_user_agent(hook):
-    data = _request_data(model="gpt-4o")
+@pytest.mark.parametrize(
+    "user_agent", [None, "curl/8.0", "claude-cli/", "claude-cli/ \t", "claude-cli/not-a-version"]
+)
+async def test_skips_unconfigured_model_regardless_of_user_agent(hook, user_agent):
+    data = _request_data(model="gpt-4o", user_agent=user_agent)
 
     result = await _run_hook(hook, data)
 
@@ -111,8 +114,23 @@ async def test_rejects_claude_code_below_minimum_version(hook):
 
 
 @pytest.mark.asyncio
-async def test_rejects_invalid_client_version(hook):
-    data = _request_data(user_agent="claude-cli/not-a-version")
+@pytest.mark.parametrize(
+    "version",
+    [
+        "not-a-version",
+        "",
+        " \t",
+        "1.2",
+        "1..3",
+        "1.2.3.4",
+        "-beta",
+        "+build",
+        pytest.param("².2.3", id="non-decimal-digit"),
+        pytest.param("9" * 5000 + ".2.3", id="oversized-integer"),
+    ],
+)
+async def test_rejects_invalid_client_version(hook, version):
+    data = _request_data(user_agent=f"claude-cli/{version}")
 
     with pytest.raises(HTTPException) as exc:
         await _run_hook(hook, data)
