@@ -4402,7 +4402,7 @@ def _can_object_call_model(
         if model in litellm.model_alias_map
         else (
             llm_router._get_model_from_alias(model)
-            if llm_router is not None and model in llm_router.model_group_alias
+            if llm_router is not None and isinstance(llm_router.model_group_alias, dict) and llm_router.model_group_alias
             else None
         )
     )
