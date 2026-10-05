@@ -446,6 +446,11 @@ def test_every_pre_call_customlogger_is_deliberately_classified():
         "_ENTERPRISE_BlockedUserList",
     }
     counts_or_shapes_the_request = {
+        # Gateway client policy and routing are not per-record content guardrails.
+        "ClaudeCodeVersionCheckHook",
+        "AliasAwareVisionModelRouter",
+        "EndpointModelRoutingHook",
+        "ClientUserAgentHook",
         "_PROXY_MaxParallelRequestsHandler_v3",
         "_PROXY_MaxIterationsHandler",
         "_PROXY_MaxBudgetPerSessionHandler",
