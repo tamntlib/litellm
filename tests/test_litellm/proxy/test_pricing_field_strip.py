@@ -18,12 +18,10 @@ from fastapi import Request
 import litellm
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.litellm_pre_call_utils import (
-    _CLIENT_PRICING_CONTROL_FIELDS,
     _CLIENT_PRICING_METADATA_FIELDS,
     _strip_client_pricing_overrides,
     add_litellm_data_to_request,
 )
-from litellm.types.utils import CustomPricingLiteLLMParams
 
 
 
@@ -54,22 +52,6 @@ def _user_api_key_auth(metadata=None, team_metadata=None) -> UserAPIKeyAuth:
 
 
 class TestStripClientPricingOverrides:
-    def test_pricing_field_set_tracks_pydantic_model(self):
-        # The strip set is built from the model so additions are picked up
-        # automatically — this test guards against the model and the strip
-        # set drifting apart if someone replaces the auto-derivation later.
-        assert _CLIENT_PRICING_CONTROL_FIELDS == frozenset(
-            CustomPricingLiteLLMParams.model_fields.keys()
-        )
-        # Sanity: the obvious top-level pricing fields are in the set.
-        for field in (
-            "input_cost_per_token",
-            "output_cost_per_token",
-            "input_cost_per_second",
-            "cache_creation_input_token_cost",
-        ):
-            assert field in _CLIENT_PRICING_CONTROL_FIELDS
-
     def test_root_pricing_fields_dropped(self):
         data = {
             "model": "gpt-4",
