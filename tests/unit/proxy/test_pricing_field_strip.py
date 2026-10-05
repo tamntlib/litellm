@@ -60,7 +60,7 @@ class TestStripClientPricingOverrides:
         # set drifting apart if someone replaces the auto-derivation later.
         assert _CLIENT_PRICING_CONTROL_FIELDS == frozenset(
             CustomPricingLiteLLMParams.model_fields.keys()
-        )
+        ) | {"base_model"}
         # Sanity: the obvious top-level pricing fields are in the set.
         for field in (
             "input_cost_per_token",
