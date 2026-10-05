@@ -1,6 +1,15 @@
 import os
 from typing import Final, Literal
 
+from litellm.integrations.tamntlib.alias_aware_vision_model_router import (
+    AliasAwareVisionModelRouter,
+)
+from litellm.integrations.tamntlib.claude_code_version_check_hook import (
+    ClaudeCodeVersionCheckHook,
+)
+from litellm.integrations.tamntlib.client_user_agent_hook import ClientUserAgentHook
+from litellm.integrations.tamntlib.endpoint_model_routing_hook import EndpointModelRoutingHook
+
 from . import *
 from .autorouter_baseline_cache import AutoRouterBaselineCache
 from .cache_control_check import _PROXY_CacheControlCheck
@@ -27,6 +36,10 @@ PROXY_HOOKS: Final = {
     "sensitive_data_routing": _PROXY_SensitiveDataRoutingHandler,
     "prompt_cache_prediction": PromptCacheObserver,
     "autorouter_baseline_cache": AutoRouterBaselineCache,
+    "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
+    "claude_code_version_check_hook": ClaudeCodeVersionCheckHook,
+    "endpoint_model_routing": EndpointModelRoutingHook,
+    "client_user_agent": ClientUserAgentHook,
 }
 
 ## FEATURE FLAG HOOKS ##
