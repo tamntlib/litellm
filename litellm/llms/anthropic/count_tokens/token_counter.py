@@ -3,6 +3,7 @@ Anthropic Token Counter implementation using the CountTokens API.
 """
 
 from typing import Any, Final
+from urllib.parse import urlparse
 
 from litellm._logging import verbose_logger
 from litellm.exceptions import AuthenticationError
@@ -54,6 +55,22 @@ class AnthropicTokenCounter(BaseTokenCounter):
         deployment = deployment or {}
         litellm_params: Final = deployment.get("litellm_params", {})
         api_base: Final = litellm_params.get("api_base")
+
+        if api_base is not None:
+            if not isinstance(api_base, str) or not api_base or any(char.isspace() for char in api_base):
+                return None
+            try:
+                parsed_api_base: Final = urlparse(api_base)
+                if (
+                    parsed_api_base.scheme not in {"http", "https"}
+                    or parsed_api_base.hostname != "api.anthropic.com"
+                    or parsed_api_base.username is not None
+                    or parsed_api_base.password is not None
+                    or parsed_api_base.port == 0
+                ):
+                    return None
+            except (ValueError, TypeError):
+                return None
 
         try:
             auth_header: Final = await AnthropicModelInfo.aget_auth_header(

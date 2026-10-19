@@ -282,8 +282,8 @@ class TestCountTokensUsesWorkloadIdentity:
     (
         (
             AnthropicTokenCounter,
-            "https://gateway.example",
-            "https://gateway.example/v1/messages/count_tokens",
+            "https://api.anthropic.com",
+            "https://api.anthropic.com/v1/messages/count_tokens",
             "anthropic_api",
         ),
         (
