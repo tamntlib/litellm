@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeVar
@@ -13,6 +14,7 @@ from litellm.constants import ROUTER_FALLBACK_ERROR_DETAIL_MAX_CHARS
 from litellm.exceptions import BadRequestError
 from litellm.litellm_core_utils.get_llm_provider_logic import get_llm_provider
 from litellm.litellm_core_utils.sensitive_data_masker import mask_sensitive_structure
+from litellm.router_utils.pattern_match_deployments import PatternMatchRouter
 from litellm.types.router import CredentialLiteLLMParams
 from litellm.types.utils import LlmProviders
 
@@ -51,7 +53,7 @@ def get_request_team_id(request_kwargs: Mapping[str, object] | None) -> str | No
     return None
 
 
-def resolve_model_group_alias(model_group_alias: object, model: str) -> str | None:
+def resolve_model_group_alias(model_group_alias: object, model: str, *, include_hidden: bool = True) -> str | None:
     """
     Resolve ``model`` through a ``model_group_alias`` map.
 
@@ -67,9 +69,29 @@ def resolve_model_group_alias(model_group_alias: object, model: str) -> str | No
         return None
     entry: Final = model_group_alias.get(model)
     target: Final = entry.get("model") if isinstance(entry, Mapping) else entry
-    if not isinstance(target, str) or not target:
-        return None
-    return target
+    if isinstance(target, str) and target:
+        if not include_hidden and isinstance(entry, Mapping) and entry.get("hidden") is True:
+            return None
+        return target
+    pattern_router: Final = PatternMatchRouter()
+    aliases: Final = sorted(
+        (alias for alias in model_group_alias if isinstance(alias, str)),
+        key=lambda alias: (len(alias), alias.count("*")),
+        reverse=True,
+    )
+    for alias in aliases:
+        if "*" not in alias:
+            continue
+        pattern_match: Final = re.match(pattern_router._pattern_to_regex(alias), model)
+        if pattern_match is None:
+            continue
+        wildcard_entry: Final = model_group_alias[alias]
+        wildcard_target: Final = wildcard_entry.get("model") if isinstance(wildcard_entry, Mapping) else wildcard_entry
+        if isinstance(wildcard_target, str) and wildcard_target:
+            if not include_hidden and isinstance(wildcard_entry, Mapping) and wildcard_entry.get("hidden") is True:
+                return None
+            return PatternMatchRouter.set_deployment_model_name(pattern_match, wildcard_target)
+    return None
 
 
 def truncate_fallback_error_detail(detail: str) -> str:
