@@ -1271,9 +1271,18 @@ def _estimated_input_cost(
     deployment_pricing: Final = deployment_pricing_model_info(model_id=deployment_id, deployment_model=model)
     if deployment_pricing is not None:
         return _deployment_priced_input_cost(model, custom_llm_provider, prompt_tokens, deployment_pricing)
+    from litellm.cost_calculator import _resolve_base_model_pricing_provider
+
     pricing_models_to_try: Final = pricing_models(base_model, model)
     candidate_costs: Final = (
-        _priced_input_cost(pricing_model, custom_llm_provider, prompt_tokens) for pricing_model in pricing_models_to_try
+        _priced_input_cost(
+            pricing_model,
+            _resolve_base_model_pricing_provider(pricing_model, custom_llm_provider)
+            if pricing_model == base_model
+            else custom_llm_provider,
+            prompt_tokens,
+        )
+        for pricing_model in pricing_models_to_try
     )
     return next((cost for cost in candidate_costs if cost is not None), 0.0)
 

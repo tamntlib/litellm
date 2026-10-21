@@ -916,6 +916,35 @@ def _declares_rates(model_info: ModelInfo | None) -> bool:
     return model_info is not None and cost_map_key_prices_anything(model_info["key"])
 
 
+def _resolve_base_model_pricing_provider(base_model: str, transport_provider: str | None) -> str | None:
+    provider_prefix: Final = base_model.split("/", 1)[0]
+    if provider_prefix in LlmProvidersSet:
+        return provider_prefix
+    if transport_provider is not None and _declares_rates(_cost_map_model_info(base_model, transport_provider)):
+        return transport_provider
+    own_model_info: Final = _cost_map_model_info(base_model, None)
+    if own_model_info is not None and own_model_info.get("litellm_provider") is not None:
+        return own_model_info["litellm_provider"]
+    try:
+        _, inferred_provider, _, _ = litellm.get_llm_provider(model=base_model)
+        return inferred_provider
+    except litellm.exceptions.BadRequestError:
+        return transport_provider
+
+
+def _resolve_model_name_and_provider_for_cost_calc(
+    selected_model: str | None,
+    model: str | None,
+    base_model: str | None = None,
+    custom_pricing: bool | None = None,
+    custom_llm_provider: str | None = None,
+) -> tuple[str | None, str | None]:
+    transport_provider: Final = _get_provider_for_cost_calc(model=model, custom_llm_provider=custom_llm_provider)
+    if base_model is not None and custom_pricing is not True:
+        return base_model, _resolve_base_model_pricing_provider(base_model, transport_provider)
+    return selected_model, transport_provider
+
+
 def _base_model_pricing_provider(base_model: str, custom_llm_provider: str | None) -> str | None:
     """The provider to price an explicit base_model under, when the deployment's own provider has
     no rates for it (e.g. chatgpt/ subscription rows) but the base model's own row does"""
@@ -1622,7 +1651,7 @@ def completion_cost(
             _configured_search_cost_per_query(litellm_logging_obj) if custom_pricing else None
         )
         base_model_provider: Final = (
-            _base_model_pricing_provider(
+            _resolve_base_model_pricing_provider(
                 base_model,
                 _get_provider_for_cost_calc(
                     model=model,
@@ -1983,10 +2012,15 @@ def completion_cost(
                     litellm_logging_obj=litellm_logging_obj,
                     total_time=total_time,
                 )
+                pricing_llm_provider: Final = _pricing_provider_for_cost_candidate(
+                    candidate_provider=candidate_pricing_provider,
+                    request_provider=request_pricing_provider,
+                    current_provider=custom_llm_provider,
+                )
                 model_for_discount = custom_priced_request_model or model
                 # Calculate cost based on prompt_tokens, completion_tokens
                 if (
-                    "togethercomputer" in model or "together_ai" in model or custom_llm_provider == "together_ai"
+                    "togethercomputer" in model or "together_ai" in model or pricing_llm_provider == "together_ai"
                 ) and not has_together_registry_pricing(model, litellm.model_cost):
                     model = get_model_params_and_category(model, call_type=CallTypes(call_type))
 
@@ -2001,7 +2035,7 @@ def completion_cost(
                         f"Model is None and does not exist in passed completion_response. Passed completion_response={completion_response}, model={model}"
                     )
 
-                if custom_llm_provider is not None and custom_llm_provider == "vertex_ai":
+                if pricing_llm_provider == "vertex_ai":
                     # Calculate the prompt characters + response characters
                     if len(messages) > 0:
                         prompt_string = litellm.utils.get_formatted_prompt(
@@ -2082,7 +2116,7 @@ def completion_cost(
                     response_object=completion_response,
                     usage=cost_per_token_usage_object,
                     standard_built_in_tools_params=standard_built_in_tools_params,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_llm_provider,
                 )
                 _final_cost += cost_for_built_in_tools
                 if additional_costs:
