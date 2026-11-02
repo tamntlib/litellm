@@ -48,6 +48,7 @@ from litellm.constants import (
 from litellm.cost_calculator import (
     RealtimeAPITokenUsageProcessor,
     ResponsesWebSocketTokenUsageProcessor,
+    _resolve_model_name_and_provider_for_cost_calc,
     get_usage_object,
     pricing_entry_for_cost_calc,
     select_model_name_for_cost_calc,
@@ -6061,6 +6062,13 @@ class StandardLoggingPayloadSetup:
             base_model=base_model,
             custom_pricing=custom_pricing,
         )
+        model_cost_name, pricing_llm_provider = _resolve_model_name_and_provider_for_cost_calc(
+            selected_model=model_cost_name,
+            model=base_model if custom_pricing else None,
+            base_model=base_model,
+            custom_pricing=custom_pricing,
+            custom_llm_provider=custom_llm_provider,
+        )
         pricing_model_name: Final = (
             select_model_name_for_cost_calc(
                 model=base_model if custom_pricing else None,
@@ -6078,7 +6086,7 @@ class StandardLoggingPayloadSetup:
             try:
                 _model_cost_information: Final = litellm.get_model_info(
                     model=pricing_model_name or model_cost_name,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_llm_provider,
                     api_base=api_base,
                 )
                 model_cost_information = StandardLoggingModelInformation(
