@@ -1354,13 +1354,24 @@ def _estimated_input_cost(
     ``base_model`` is; a ``base_model`` the cost map does not know falls through to the deployment
     model). A model no candidate can price keeps the row at $0 rather than dropping the failure row."""
     model: Final = str(model_call_details.get("model") or "")
-    custom_llm_provider: Final = str(model_call_details.get("custom_llm_provider") or "") or None
+    from litellm.cost_calculator import _base_model_pricing_provider, _get_provider_for_cost_calc
+
+    custom_llm_provider: Final = _get_provider_for_cost_calc(
+        model=model, custom_llm_provider=str(model_call_details.get("custom_llm_provider") or "") or None
+    )
     deployment_pricing: Final = deployment_pricing_model_info(model_id=deployment_id, deployment_model=model)
     if deployment_pricing is not None:
         return _deployment_priced_input_cost(model, custom_llm_provider, prompt_tokens, deployment_pricing)
     pricing_models_to_try: Final = pricing_models(base_model, model)
     candidate_costs: Final = (
-        _priced_input_cost(pricing_model, custom_llm_provider, prompt_tokens) for pricing_model in pricing_models_to_try
+        _priced_input_cost(
+            pricing_model,
+            (_base_model_pricing_provider(pricing_model, custom_llm_provider) or custom_llm_provider)
+            if pricing_model == base_model
+            else custom_llm_provider,
+            prompt_tokens,
+        )
+        for pricing_model in pricing_models_to_try
     )
     return next((cost for cost in candidate_costs if cost is not None), 0.0)
 
