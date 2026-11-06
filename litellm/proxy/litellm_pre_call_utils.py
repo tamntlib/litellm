@@ -80,6 +80,7 @@ from litellm.proxy.common_utils.callback_utils import (
 )
 from litellm.proxy.common_utils.http_parsing_utils import (  # noqa: F401  # legacy module exports
     _safe_get_request_headers,  # pyright: ignore[reportPrivateUsage,reportUnusedImport]  # backwards-compatible package export
+    get_client_requested_model,
     safe_get_request_headers,
 )
 from litellm.proxy.spend_tracking.carried_budget_state import carried_budget_metadata
@@ -2273,6 +2274,7 @@ async def add_litellm_data_to_request(
         "method": request.method,
         "headers": _logging_safe_headers,
         "body": None,  # filled in post-strip; see below
+        "client_requested_model": get_client_requested_model(request),
         "credential_fields": tuple(sorted(name for name in _TRANSPORT_ONLY_CREDENTIAL_KEYS if name in data)),
         "arrival_time": arrival_time,  # Track when request arrived at proxy
     }
