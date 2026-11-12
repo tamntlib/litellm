@@ -2508,7 +2508,7 @@ class PythonCore(DeprecatedRouterMembers):
         return (
             model in self._core_model_names
             or self._core_has_model_id(model)
-            or (self._core_model_group_alias is not None and model in self._core_model_group_alias)
+            or self._core_get_model_from_alias(model) is not None
             or self.get_routing_group(model) is not None
         )
 
@@ -13367,21 +13367,15 @@ class PythonCore(DeprecatedRouterMembers):
         - ModelGroupInfo if able to construct a model group
         - None if error constructing model group info or hidden model group (unless include_hidden)
         """
-        ## Check if model group alias
-        if model_group in self._core_model_group_alias:
-            item: Final = self._core_model_group_alias[model_group]
-            if isinstance(item, str):
-                _router_model_group = item
-            elif isinstance(item, dict):
-                if item["hidden"] is True and not include_hidden:
-                    return None
-                else:
-                    _router_model_group = item["model"]
-            else:
+        alias_target: Final = resolve_model_group_alias(self._core_model_group_alias, model_group)
+        if alias_target is not None:
+            if (
+                not include_hidden
+                and resolve_model_group_alias(self._core_model_group_alias, model_group, include_hidden=False) is None
+            ):
                 return None
-
             return self._set_model_group_info(
-                model_group=_router_model_group,
+                model_group=alias_target,
                 user_facing_model_group_name=model_group,
                 team_id=team_id,
             )
@@ -14179,10 +14173,10 @@ class PythonCore(DeprecatedRouterMembers):
         returned_models: Final[list[DeploymentTypedDict]] = []
 
         if model_name is not None:
-            # Fast path: direct dict lookup avoids scanning all aliases for non-alias model names.
-            if model_name not in self._core_model_group_alias:
+            alias_target: Final = resolve_model_group_alias(self._core_model_group_alias, model_name)
+            if alias_target is None:
                 return returned_models
-            alias_items = [(model_name, self._core_model_group_alias[model_name])]
+            alias_items = [(model_name, alias_target)]
         else:
             alias_items = list(self._core_model_group_alias.items())
 
@@ -14190,10 +14184,12 @@ class PythonCore(DeprecatedRouterMembers):
             if isinstance(model_value, str):
                 _router_model_name: str = model_value
             elif isinstance(model_value, dict):
-                _model_value = RouterModelGroupAliasItem(**model_value)
-                if _model_value["hidden"] is True and model_name is None:
+                if model_value.get("hidden") is True and model_name is None:
                     continue
-                _router_model_name = _model_value["model"]
+                alias_model: Final = model_value.get("model")
+                if not isinstance(alias_model, str) or not alias_model:
+                    continue
+                _router_model_name = alias_model
             else:
                 continue
 

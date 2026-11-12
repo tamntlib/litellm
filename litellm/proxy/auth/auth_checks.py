@@ -4991,11 +4991,7 @@ def _can_object_call_model(
     global_or_router_alias_target: Final = (
         litellm.model_alias_map[model]
         if model in litellm.model_alias_map
-        else (
-            llm_router.registry().resolve(model, kind="alias")
-            if llm_router is not None and model in llm_router.registry().aliases()
-            else None
-        )
+        else (llm_router.registry().resolve(model, kind="alias") if llm_router is not None else None)
     )
     after_team_alias: Final = team_model_aliases.get(model, model) if team_model_aliases else model
     after_key_alias: Final = (
