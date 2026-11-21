@@ -1900,6 +1900,12 @@ def completion_cost(
         configured_cost_per_query: Final = (
             _configured_search_cost_per_query(litellm_logging_obj) if custom_pricing else None
         )
+        if custom_llm_provider is None:
+            custom_llm_provider = (
+                _get_provider_for_cost_calc(  # rebind-ok: infer transport before selecting a pricing model
+                    model or _get_response_model(completion_response)
+                )
+            )
         base_model_provider: Final = (
             _base_model_pricing_provider(
                 base_model,
@@ -2055,6 +2061,11 @@ def completion_cost(
                             "litellm.cost_calculator.py::completion_cost() - Error inferring custom_llm_provider - %s",
                             e,
                         )
+                pricing_llm_provider: Final = _pricing_provider_for_cost_candidate(
+                    candidate_provider=candidate_pricing_provider,
+                    request_provider=request_pricing_provider,
+                    current_provider=custom_llm_provider,
+                )
                 if CostCalculatorUtils.call_type_has_image_response(call_type) and isinstance(
                     completion_response, ImageResponse
                 ):
@@ -2264,11 +2275,7 @@ def completion_cost(
                     return _adjusted_provider_billed_cost(
                         reported_cost=reported_cost,
                         custom_llm_provider=custom_llm_provider,
-                        pricing_provider=_pricing_provider_for_cost_candidate(
-                            candidate_provider=candidate_pricing_provider,
-                            request_provider=request_pricing_provider,
-                            current_provider=custom_llm_provider,
-                        ),
+                        pricing_provider=pricing_llm_provider,
                         model=model_for_discount,
                         region_name=region_name if isinstance(region_name, str) else None,
                         litellm_logging_obj=litellm_logging_obj,
@@ -2279,7 +2286,7 @@ def completion_cost(
                     )
                 # Calculate cost based on prompt_tokens, completion_tokens
                 if (
-                    "togethercomputer" in model or "together_ai" in model or custom_llm_provider == "together_ai"
+                    "togethercomputer" in model or "together_ai" in model or pricing_llm_provider == "together_ai"
                 ) and not has_together_registry_pricing(model, litellm.model_cost):
                     model = get_model_params_and_category(model, call_type=CallTypes(call_type))
 
@@ -2294,7 +2301,7 @@ def completion_cost(
                         f"Model is None and does not exist in passed completion_response. Passed completion_response={completion_response}, model={model}"
                     )
 
-                if custom_llm_provider is not None and custom_llm_provider == "vertex_ai":
+                if pricing_llm_provider == "vertex_ai":
                     # Calculate the prompt characters + response characters
                     if len(messages) > 0:
                         prompt_string = litellm.utils.get_formatted_prompt(
@@ -2318,11 +2325,7 @@ def completion_cost(
                     model=model,
                     prompt_tokens=prompt_tokens or 0,
                     completion_tokens=completion_tokens or 0,
-                    custom_llm_provider=_pricing_provider_for_cost_candidate(
-                        candidate_provider=candidate_pricing_provider,
-                        request_provider=request_pricing_provider,
-                        current_provider=custom_llm_provider,
-                    ),
+                    custom_llm_provider=pricing_llm_provider,
                     response_time_ms=response_time_ms,
                     region_name=None if explicit_pricing else region_name,
                     custom_cost_per_second=custom_cost_per_second,
@@ -2376,7 +2379,7 @@ def completion_cost(
                     response_object=completion_response,
                     usage=cost_per_token_usage_object,
                     standard_built_in_tools_params=standard_built_in_tools_params,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_llm_provider,
                 )
                 _final_cost += cost_for_built_in_tools
                 if additional_costs:
@@ -2423,11 +2426,7 @@ def completion_cost(
                     if cost_per_token_usage_object is not None and model:
                         _token_type_breakdown = get_token_type_cost_breakdown(
                             model=model,
-                            custom_llm_provider=_pricing_provider_for_cost_candidate(
-                                candidate_provider=candidate_pricing_provider,
-                                request_provider=request_pricing_provider,
-                                current_provider=custom_llm_provider,
-                            ),
+                            custom_llm_provider=pricing_llm_provider,
                             usage=cost_per_token_usage_object,
                             service_tier=service_tier,
                             data_residency=data_residency,

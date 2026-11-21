@@ -341,19 +341,32 @@ class AnthropicPassthroughLoggingHandler:
         custom_pricing: Final = use_custom_pricing_for_model(
             litellm_params=(logging_obj.litellm_params if hasattr(logging_obj, "litellm_params") else None)
         )
+        from litellm.proxy.proxy_server import llm_router
+
+        router_model_id: Final = logging_obj.get_router_model_id()
+        deployment: Final = (
+            llm_router.registry().deployment(router_model_id)
+            if llm_router is not None and router_model_id is not None
+            else None
+        )
+        base_model: Final = deployment.model_info.base_model if deployment is not None else None
+        pricing_provider: Final = deployment.model_info.pricing_provider if deployment is not None else None
         reported_cost: Final = (
             response_cost_in_hidden_params(litellm_model_response)
             if isinstance(litellm_model_response, ModelResponse)
             else None
         )
-        if reported_cost is not None and not custom_pricing:
+        if reported_cost is not None and not custom_pricing and base_model is None:
             return reported_cost
         return litellm.completion_cost(
             completion_response=litellm_model_response,
             model=model_for_cost,
             custom_llm_provider=custom_llm_provider,
             custom_pricing=custom_pricing,
-            router_model_id=logging_obj.get_router_model_id(),
+            base_model=base_model,
+            pricing_provider=pricing_provider,
+            router_model_id=router_model_id,
+            litellm_logging_obj=logging_obj,
         )
 
     @staticmethod
