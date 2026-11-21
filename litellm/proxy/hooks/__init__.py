@@ -1,6 +1,13 @@
 import os
 from typing import Final, Literal
 
+from litellm.integrations.tamntlib.alias_aware_vision_model_router import (
+    AliasAwareVisionModelRouter,
+)
+from litellm.integrations.tamntlib.client_user_agent_hook import ClientUserAgentHook
+from litellm.integrations.tamntlib.endpoint_model_routing_hook import EndpointModelRoutingHook
+from litellm.integrations.tamntlib.model_client_restriction_hook import ModelClientRestrictionHook
+
 from . import *
 from .autorouter_baseline_cache import AutoRouterBaselineCache
 from .cache_control_check import (  # noqa: F401  # backwards-compatible package export
@@ -45,6 +52,10 @@ PROXY_HOOKS: Final = {
     "sensitive_data_routing": PROXY_SensitiveDataRoutingHandler,
     "prompt_cache_prediction": PromptCacheObserver,
     "autorouter_baseline_cache": AutoRouterBaselineCache,
+    "alias_aware_vision_model_router": AliasAwareVisionModelRouter,
+    "model_client_restriction_hook": ModelClientRestrictionHook,
+    "endpoint_model_routing": EndpointModelRoutingHook,
+    "client_user_agent": ClientUserAgentHook,
 }
 
 ## FEATURE FLAG HOOKS ##
