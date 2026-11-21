@@ -2,6 +2,7 @@
 //! group and team. A [`Registry`] is immutable; [`Registry::apply`] builds the next version.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt::Write as _,
     sync::Arc,
@@ -14,7 +15,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     error::ConfigError,
-    host_index::{HostIndexes, IndexWrite, cache_flags_left_to_the_catalog, deployment_model_name},
+    host_index::{
+        HostIndexes, IndexWrite, cache_flags_left_to_the_catalog, deployment_model_name,
+        pattern_to_regex, regex_fullmatch,
+    },
 };
 
 /// A registry's version; every change produces a higher one.
@@ -429,6 +433,7 @@ pub struct Registry {
     by_team: HashMap<String, Vec<usize>>,
     wildcards: Vec<(String, Vec<usize>)>,
     aliases: BTreeMap<String, String>,
+    wildcard_aliases: Vec<(String, String)>,
     routing_groups: Vec<RoutingGroupSpec>,
     overrides: Option<Arc<IndexOverrides>>,
     /// The indexes the host hands out, kept by the Python router's history rules.
@@ -500,6 +505,14 @@ impl Registry {
             }
         }
         wildcards.sort_by_key(|(pattern, _)| std::cmp::Reverse(pattern_specificity(pattern)));
+        let mut wildcard_aliases: Vec<(String, String)> = aliases
+            .iter()
+            .filter(|(alias, _)| alias.contains('*'))
+            .map(|(alias, target)| (alias.clone(), target.clone()))
+            .collect();
+        wildcard_aliases.sort_by_key(|(alias, _)| {
+            std::cmp::Reverse((alias.chars().count(), alias.matches('*').count()))
+        });
         Self {
             version,
             rewritten: version,
@@ -509,6 +522,7 @@ impl Registry {
             by_team,
             wildcards,
             aliases,
+            wildcard_aliases,
             routing_groups,
             overrides: None,
             host: Arc::default(),
@@ -849,7 +863,8 @@ impl Registry {
     /// after its alias, unless it is a callable routing group.
     pub fn missing_member_group(&self, name: &str) -> Option<&str> {
         let members = self.member_groups.as_ref()?;
-        let resolved = self.alias_of(name).unwrap_or(name);
+        let resolved = self.alias_of(name);
+        let resolved = resolved.as_deref().unwrap_or(name);
         if self.routing_group_named(resolved).is_some() {
             return None;
         }
@@ -938,7 +953,9 @@ impl Registry {
     pub fn model_list_len(&self, name: &str) -> usize {
         let count = |group: &str| self.group(group).map_or(0, |deployments| deployments.len());
         let listed = count(name)
-            + self.aliases.get(name).map_or(0, |target| count(target))
+            + self
+                .alias_of(name)
+                .map_or(0, |target| count(target.as_ref()))
             + self
                 .routing_groups
                 .iter()
@@ -991,8 +1008,16 @@ impl Registry {
     }
 
     /// The group `model_group_alias` rewrites `name` to.
-    pub(crate) fn alias_of(&self, name: &str) -> Option<&str> {
-        self.aliases.get(name).map(String::as_str)
+    pub(crate) fn alias_of(&self, name: &str) -> Option<Cow<'_, str>> {
+        if let Some(target) = self.aliases.get(name) {
+            return Some(Cow::Borrowed(target.as_str()));
+        }
+        for (alias, target) in &self.wildcard_aliases {
+            if let Some(groups) = regex_fullmatch(&pattern_to_regex(alias), name) {
+                return Some(Cow::Owned(deployment_model_name(&groups, name, target)));
+            }
+        }
+        None
     }
 
     /// The callable routing group named `name`: a model group of that name shadows it.
@@ -1052,7 +1077,8 @@ impl Registry {
                 .then(|| self.routing_groups.iter().find(|g| g.group_name == name))
                 .flatten()
         };
-        if let Some(target) = self.aliases.get(name) {
+        if let Some(target) = self.alias_of(name) {
+            let target = target.as_ref();
             if let Some(routing_group) = routing_group_named(target) {
                 let deployments = crate::routing_groups::members(routing_group, |model| {
                     self.by_group
@@ -1529,6 +1555,47 @@ mod tests {
         .unwrap();
         let resolution = registry.resolve(name, ResolveScope::default()).unwrap();
         assert_eq!((resolution.kind, resolution.group.as_str()), (kind, group));
+    }
+
+    #[rstest]
+    #[case::exact_beats_wildcard("group-a", Some("exact"))]
+    #[case::capture_substitution("group-b", Some("target-b"))]
+    #[case::specificity_longest_first("specific-x", Some("specific-target-x"))]
+    #[case::rejects_trailing_suffix("public-a-safe-UNEXPECTED", None)]
+    #[case::rejects_newline_suffix("public-a-safe\n", None)]
+    #[case::matches_bounded_wildcard("public-a-safe", Some("target-a"))]
+    fn wildcard_alias_of_matches_python_semantics(
+        #[case] name: &str,
+        #[case] expected: Option<&str>,
+    ) {
+        let registry = Registry::build(
+            vec![
+                spec("exact", json!({"model": "openai/exact"}), json!({})),
+                spec("target-a", json!({"model": "openai/a"}), json!({})),
+                spec("target-b", json!({"model": "openai/b"}), json!({})),
+                spec("specific-target-x", json!({"model": "openai/x"}), json!({})),
+            ],
+            BTreeMap::from([
+                ("group-a".to_owned(), "exact".to_owned()),
+                ("group-*".to_owned(), "target-*".to_owned()),
+                ("specific-*".to_owned(), "specific-target-*".to_owned()),
+                ("public-*-safe".to_owned(), "target-*".to_owned()),
+            ]),
+            Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(registry.alias_of(name).as_deref(), expected);
+        assert_eq!(
+            registry.model_list_len(name),
+            usize::from(expected.is_some())
+        );
+        if let Some(group) = expected {
+            let resolution = registry.resolve(name, ResolveScope::default()).unwrap();
+            assert_eq!(
+                (resolution.kind, resolution.group.as_str()),
+                (ResolveKind::Alias, group)
+            );
+        }
     }
 
     #[rstest]

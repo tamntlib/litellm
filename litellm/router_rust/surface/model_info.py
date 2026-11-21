@@ -52,7 +52,7 @@ from litellm.litellm_core_utils.reasoning_effort_capability import (
     intersect_supported_reasoning_efforts,
     resolve_supported_reasoning_efforts,
 )
-from litellm.litellm_core_utils.routing_common_utils import team_may_use_deployment
+from litellm.litellm_core_utils.routing_common_utils import resolve_model_group_alias, team_may_use_deployment
 from litellm.llms.anthropic.common_utils import AnthropicModelInfo
 from litellm.llms.bedrock.common_utils import get_bedrock_base_model
 from litellm.redis.stores.router_usage import ROUTER_USAGE_TARGET, RouterUsage, UsageCounter
@@ -297,21 +297,15 @@ class HostModelInfo:
         - ModelGroupInfo if able to construct a model group
         - None if error constructing model group info or hidden model group (unless include_hidden)
         """
-        ## Check if model group alias
-        if model_group in self._core_model_group_alias:
-            item: Final = self._core_model_group_alias[model_group]
-            if isinstance(item, str):
-                _router_model_group = item  # rebind-ok: ported from the Python core unchanged
-            elif isinstance(item, dict):
-                if item["hidden"] is True and not include_hidden:
-                    return None
-                else:
-                    _router_model_group = item["model"]  # rebind-ok: ported from the Python core unchanged
-            else:
+        alias_target: Final = resolve_model_group_alias(self._core_model_group_alias, model_group)
+        if alias_target is not None:
+            if (
+                not include_hidden
+                and resolve_model_group_alias(self._core_model_group_alias, model_group, include_hidden=False) is None
+            ):
                 return None
-
             return self._set_model_group_info(
-                model_group=_router_model_group,
+                model_group=alias_target,
                 user_facing_model_group_name=model_group,
                 team_id=team_id,
             )

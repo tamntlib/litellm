@@ -95,11 +95,14 @@ impl Candidates {
     }
 
     pub(crate) fn failed_model(&self, registry: &Registry) -> String {
-        let model = match self.kind {
-            ResolveKind::Wildcard => registry.alias_of(&self.name).unwrap_or(&self.name),
-            _ => self.model_group.as_str(),
-        };
-        model.to_owned()
+        match self.kind {
+            ResolveKind::Wildcard => registry
+                .alias_of(&self.name)
+                .as_deref()
+                .unwrap_or(&self.name)
+                .to_owned(),
+            _ => self.model_group.clone(),
+        }
     }
 }
 
@@ -290,7 +293,8 @@ impl Core {
         let wildcard_request = match wildcard_name {
             Some(model) => {
                 let scope = StrategyScope::Default;
-                let ctx = self.context(snapshot, op, request, model, model, scope);
+                let ctx =
+                    self.context(snapshot, op, request, model.as_ref(), model.as_ref(), scope);
                 self.host.provider_request(&ctx).await?
             }
             None => None,
@@ -316,7 +320,11 @@ impl Core {
         )?
         .ok_or_else(|| Error::UnknownModel {
             // The name `_common_checks_available_deployment` looked for, past the alias.
-            model: registry.alias_of(name).unwrap_or(name).to_owned(),
+            model: registry
+                .alias_of(name)
+                .as_deref()
+                .unwrap_or(name)
+                .to_owned(),
         })?;
         let first_model = resolution
             .deployments
@@ -377,8 +385,9 @@ impl Core {
             if all.is_empty() {
                 // The name `_common_checks_available_deployment` resolved: an alias's target, a
                 // routing group's name, the alias-resolved name a wildcard serves.
+                let aliased = registry.alias_of(name);
                 let model = match resolution.kind {
-                    ResolveKind::Wildcard => registry.alias_of(name).unwrap_or(name),
+                    ResolveKind::Wildcard => aliased.as_deref().unwrap_or(name),
                     ResolveKind::SpecificDeployment => name,
                     _ => resolution.group.as_str(),
                 };

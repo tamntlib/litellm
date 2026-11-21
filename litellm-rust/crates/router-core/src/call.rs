@@ -211,6 +211,7 @@ fn group_members(
     };
     let mut rows = all(group, team_id);
     if let Some(alias_target) = registry.alias_of(group) {
+        let alias_target = alias_target.as_ref();
         rows.extend(match registry.routing_group_named(alias_target) {
             Some(routing_group) => members(routing_group),
             None => all(alias_target, None),

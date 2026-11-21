@@ -496,6 +496,38 @@ pub fn regex_match(regex: &str, request: &str) -> Option<Vec<String>> {
     greedy(&runs[1..], rest, &mut groups).then_some(groups)
 }
 
+/// `re.fullmatch(regex, request)` for a pattern regex: anchored at both ends, each `(.*)`
+/// greedy and never matching `\n`. The groups it captured, or None when it does not match.
+pub fn regex_fullmatch(regex: &str, request: &str) -> Option<Vec<String>> {
+    let runs = literal_runs(regex)?;
+    let rest = request.strip_prefix(runs[0].as_str())?;
+    let mut groups = Vec::new();
+    greedy_fullmatch(&runs[1..], rest, &mut groups).then_some(groups)
+}
+
+fn greedy_fullmatch(runs: &[String], rest: &str, groups: &mut Vec<String>) -> bool {
+    let Some((literal, later)) = runs.split_first() else {
+        return rest.is_empty();
+    };
+    let mut ends: Vec<usize> = rest.char_indices().map(|(at, _)| at).collect();
+    ends.push(rest.len());
+    for &end in ends.iter().rev() {
+        let (group, after) = rest.split_at(end);
+        if group.contains('\n') {
+            continue;
+        }
+        let Some(after) = after.strip_prefix(literal.as_str()) else {
+            continue;
+        };
+        groups.push(group.to_owned());
+        if greedy_fullmatch(later, after, groups) {
+            return true;
+        }
+        groups.pop();
+    }
+    false
+}
+
 /// Match `runs` (each a literal that follows a group) against `rest`, longest group first.
 fn greedy(runs: &[String], rest: &str, groups: &mut Vec<String>) -> bool {
     let Some((literal, later)) = runs.split_first() else {
