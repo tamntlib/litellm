@@ -68,6 +68,9 @@ from litellm.cost_calculator import (
     BaseTokenUsageProcessor,
     RealtimeAPITokenUsageProcessor,
     ResponsesWebSocketTokenUsageProcessor,
+    _base_model_pricing_provider,
+    _get_provider_for_cost_calc,
+    _get_response_model,
     declared_cost_map_pricing,
     get_response_cost_from_hidden_params,
     get_usage_object,
@@ -270,6 +273,7 @@ from litellm.types.videos.main import VideoObject
 from litellm.types.videos.utils import POLLED_VIDEO_STATUS_KWARG
 from litellm.utils import (
     get_base_model_from_metadata,
+    get_model_info_for_pricing,
     print_verbose,
 )
 
@@ -7981,6 +7985,14 @@ class StandardLoggingPayloadSetup:
         router_model_id: str | None = None,
         custom_model_info: ModelInfo | None = None,
     ) -> StandardLoggingModelInformation:
+        transport_provider: Final = _get_provider_for_cost_calc(
+            _get_response_model(init_response_obj), custom_llm_provider
+        )
+        pricing_provider: Final = (
+            _base_model_pricing_provider(base_model, transport_provider) or transport_provider
+            if base_model is not None and not custom_pricing
+            else transport_provider
+        )
         model_cost_name: Final = select_model_name_for_cost_calc(
             model=base_model if custom_pricing else None,
             completion_response=init_response_obj,
@@ -8004,9 +8016,9 @@ class StandardLoggingPayloadSetup:
             model_cost_information = StandardLoggingModelInformation(model_map_key="", model_map_value=None)
         else:
             try:
-                _model_cost_information: Final = litellm.get_model_info(
+                _model_cost_information: Final = get_model_info_for_pricing(
                     model=pricing_model_name or model_cost_name,
-                    custom_llm_provider=custom_llm_provider,
+                    custom_llm_provider=pricing_provider,
                     api_base=api_base,
                 )
                 model_cost_information = StandardLoggingModelInformation(
