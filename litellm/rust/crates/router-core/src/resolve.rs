@@ -6,7 +6,7 @@
 //! fallback. Every arm drops strategy markers and deployments that refuse the request's endpoint,
 //! and withholds deployments reserved for other teams.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, sync::Arc};
 
 use jiff::Timestamp;
 
@@ -124,6 +124,7 @@ fn model_access_groups(
     let mut rows = all_deployments(registry, model, team_id).unwrap_or_default();
     let mut stripped_rows = 0;
     if let Some(target) = registry.alias_of(model) {
+        let target = target.as_ref();
         match registry.routing_group_named(target) {
             Some(group) => stripped_rows += routing_group_rows(registry, group, None).len(),
             None => rows.extend(all_deployments(registry, target, None).unwrap_or_default()),
@@ -224,17 +225,19 @@ pub(crate) fn wildcard_name<'a>(
     name: &'a str,
     specific_deployment: bool,
     team_id: Option<&str>,
-) -> Option<&'a str> {
-    let model = registry.alias_of(name).unwrap_or(name);
+) -> Option<Cow<'a, str>> {
+    let model = registry.alias_of(name).unwrap_or(Cow::Borrowed(name));
+    let model_ref = model.as_ref();
     let lookup = crate::lookup::Lookup::new(registry);
     let team_patterns = team_id.is_some_and(|team| lookup.has_team_wildcards(team));
-    let team_misses = || team_id.is_none_or(|team| lookup.team_wildcard(model, team).is_empty());
-    let global_misses = || registry.has_wildcards() && registry.wildcard_for(model).is_none();
+    let team_misses =
+        || team_id.is_none_or(|team| lookup.team_wildcard(model_ref, team).is_empty());
+    let global_misses = || registry.has_wildcards() && registry.wildcard_for(model_ref).is_none();
     ((team_patterns || registry.has_wildcards())
         && !specific_deployment
-        && !registry.has_name(model)
+        && !registry.has_name(model_ref)
         && (registry.has_name(name) || registry.deployment(name).is_none())
-        && registry.routing_group_named(model).is_none()
+        && registry.routing_group_named(model_ref).is_none()
         && team_misses()
         && (team_patterns || global_misses()))
     .then_some(model)
@@ -340,7 +343,7 @@ pub fn resolve_request(
         return resolved(ResolveKind::Id, &group, kept);
     }
     let aliased = registry.alias_of(name);
-    let model = aliased.unwrap_or(name);
+    let model = aliased.as_deref().unwrap_or(name);
     let routing_group = registry
         .routing_group_named(model)
         .map(|group| routing_group_rows(registry, group, team_id));
@@ -609,7 +612,7 @@ mod tests {
     fn a_name_no_pattern_matches_is_tried_under_its_provider() {
         let registry = registry(wildcard_group());
         assert_eq!(
-            wildcard_name(&registry, "gpt-4o", false, None),
+            wildcard_name(&registry, "gpt-4o", false, None).as_deref(),
             Some("gpt-4o")
         );
         assert_eq!(wildcard_name(&registry, "openai/gpt-4o", false, None), None);
@@ -640,7 +643,7 @@ mod tests {
         ]));
         // No proxy-wide wildcard: only the team's patterns call for the provider spelling.
         assert_eq!(
-            wildcard_name(&registry, "gpt-4o-mini", false, Some("TW")),
+            wildcard_name(&registry, "gpt-4o-mini", false, Some("TW")).as_deref(),
             Some("gpt-4o-mini")
         );
         assert_eq!(wildcard_name(&registry, "gpt-4o-mini", false, None), None);

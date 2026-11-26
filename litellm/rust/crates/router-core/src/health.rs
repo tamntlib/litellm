@@ -169,7 +169,8 @@ pub(crate) fn team_model_has_alternatives(registry: &Registry, deployment: &Depl
 /// `_core_routing_group_has_alternatives`: `model_group` names a callable routing group whose
 /// members span more than one deployment.
 pub(crate) fn routing_group_has_alternatives(registry: &Registry, model_group: &str) -> bool {
-    let resolved = registry.alias_of(model_group).unwrap_or(model_group);
+    let resolved = registry.alias_of(model_group);
+    let resolved = resolved.as_deref().unwrap_or(model_group);
     registry.routing_group_named(resolved).is_some_and(|group| {
         group
             .models

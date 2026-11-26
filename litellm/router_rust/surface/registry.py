@@ -1788,18 +1788,21 @@ class HostRegistry(HostModelInfo):
 
         aliases: Final[list[Mapping[str, str]]] = []  # mutable-ok: filled per alias
         alias_map: Final = self._core_model_group_alias or {}
-        if model_name is None or model_name in alias_map:
-            items: Final[Sequence[tuple[str, object]]] = (
-                [(model_name, alias_map[model_name])] if model_name is not None else list(alias_map.items())
-            )
-            for model_alias, model_value in items:
+        if model_name is not None:
+            alias_target: Final = resolve_model_group_alias(alias_map, model_name)
+            if alias_target is not None:
+                aliases.append({"alias": model_name, "target": alias_target})
+        else:
+            for model_alias, model_value in alias_map.items():
                 if isinstance(model_value, str):
                     aliases.append({"alias": model_alias, "target": model_value})
                 elif isinstance(model_value, dict):
-                    item = RouterModelGroupAliasItem(**model_value)  # pyright: ignore[reportCallIssue, reportArgumentType]  # an alias item dict
-                    if item["hidden"] is True and model_name is None:
+                    if model_value.get("hidden") is True:
                         continue
-                    aliases.append({"alias": model_alias, "target": item["model"]})
+                    alias_model: Final = model_value.get("model")
+                    if not isinstance(alias_model, str) or not alias_model:
+                        continue
+                    aliases.append({"alias": model_alias, "target": alias_model})
         groups: Final = [
             {"name": name, "members": list(group.models)}
             for name in (self._core_routing_groups or {})
@@ -1811,7 +1814,7 @@ class HostRegistry(HostModelInfo):
             []
             if model_name is None
             else [model_name]
-            if model_name in alias_map or model_name in self._core_model_names
+            if resolve_model_group_alias(alias_map, model_name) is not None or model_name in self._core_model_names
             else [model_name, f"{inferred_provider(model_name)}/{model_name}"]
         )
         return {"aliases": aliases, "groups": groups, "wildcard": wildcard, "only": only}
@@ -2025,7 +2028,7 @@ class HostRegistry(HostModelInfo):
         return (
             (handle is not None and key is not None and handle.has_model_name(key))
             or self._core_has_model_id(model)
-            or model in self._core_model_group_alias
+            or self._core_get_model_from_alias(model) is not None
             or self.get_routing_group(model) is not None
         )
 
